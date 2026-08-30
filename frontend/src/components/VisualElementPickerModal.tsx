@@ -14,7 +14,7 @@ interface VisualElementPickerModalProps {
   isOpen: boolean;
   targetUrl: string;
   onClose: () => void;
-  onSelectXPath: (xpath: string, isExclude: boolean) => void;
+  onSelectXPath: (xpath: string, extractedText: string, isExclude: boolean) => void;
 }
 
 export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> = ({
@@ -73,10 +73,16 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const handleConfirm = (isExclude: boolean = false) => {
     if (!selectedElement) return;
     const finalXPath = targetMode === 'similar' && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
+    const extractedText = selectedElement.text || '';
     if (finalXPath) {
-      onSelectXPath(finalXPath, isExclude);
+      onSelectXPath(finalXPath, extractedText, isExclude);
       onClose();
     }
+  };
+
+  const handleSkip = () => {
+    onSelectXPath('', '', false);
+    onClose();
   };
 
   const hasSimilarElements = (selectedElement?.similarCount ?? 0) > 1;
@@ -91,11 +97,18 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
               <MousePointerClick className="w-4 h-4 text-white" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm font-bold truncate">ビジュアル要素ピッカー (Element Picker)</h2>
+              <h2 className="text-sm font-bold truncate">ステップ 2/3: 監視要素の選択</h2>
               <p className="text-[11px] text-slate-300 truncate">{targetUrl}</p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            <button
+              onClick={handleSkip}
+              className="text-xs px-2.5 py-1.5 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition"
+              title="ページ全体を監視して次へ"
+            >
+              ページ全体を監視して次へ →
+            </button>
             <button
               onClick={() => {
                 setLoading(true);

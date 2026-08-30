@@ -1,7 +1,22 @@
 import React, { useState } from 'react';
-import { X, ChevronDown, ChevronUp, Clock, Target, ShieldAlert, Bell, MousePointerClick } from 'lucide-react';
+import {
+  X,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Target,
+  ShieldAlert,
+  Bell,
+  ArrowRight,
+  ArrowLeft,
+  CheckCircle2,
+  FileText,
+  MousePointerClick,
+  Sparkles,
+} from 'lucide-react';
 import { CreateWatchDto } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
+import { api } from '../api';
 
 interface CreateWatchModalProps {
   isOpen: boolean;
@@ -25,20 +40,85 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   onSubmit,
   defaultTopic,
 }) => {
+  // ステップ管理: 1 = URL入力, 2 = ピッカー (モーダル), 3 = 登録オプション
+  const [step, setStep] = useState<1 | 3>(1);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+  // フォームデータ
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
-  const [intervalMinutes, setIntervalMinutes] = useState(10);
+  const [intervalMinutes, setIntervalMinutes] = useState(60); // デフォルト1時間
   const [notificationTopic, setNotificationTopic] = useState(defaultTopic);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [extractedText, setExtractedText] = useState('');
   const [includeFilters, setIncludeFilters] = useState('');
   const [subtractedFilters, setSubtractedFilters] = useState('');
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const [loadingInfo, setLoadingInfo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // モーダルを閉じてリセット
+  const handleClose = () => {
+    setStep(1);
+    setIsPickerOpen(false);
+    setUrl('');
+    setTitle('');
+    setIntervalMinutes(60);
+    setExtractedText('');
+    setIncludeFilters('');
+    setSubtractedFilters('');
+    setShowAdvanced(false);
+    setError(null);
+    onClose();
+  };
+
+  // Step 1: URL入力からピッカーへ進む
+  const handleProceedToPicker = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url) {
+      setError('URLを入力してください');
+      return;
+    }
+
+    try {
+      setLoadingInfo(true);
+      setError(null);
+      // ページの <title> を取得
+      const info = await api.getPageInfo(url.trim());
+      if (info && info.title) {
+        setTitle(info.title);
+      }
+      setIsPickerOpen(true);
+    } catch {
+      setIsPickerOpen(true);
+    } finally {
+      setLoadingInfo(false);
+    }
+  };
+
+  // Step 2: ピッカーで要素を選択した後の処理
+  const handlePickerSelect = (xpath: string, text: string, isExclude: boolean) => {
+    setIsPickerOpen(false);
+    if (xpath) {
+      if (isExclude) {
+        setSubtractedFilters((prev) => (prev ? `${prev}\n${xpath}` : xpath));
+      } else {
+        setIncludeFilters(xpath);
+      }
+      if (text) {
+        setExtractedText(text);
+      }
+      setShowAdvanced(true);
+    }
+    // Step 3（登録オプション画面）へ進む
+    setStep(3);
+  };
+
+  // Step 3: 最終登録実行
+  const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) {
       setError('URLを入力してください');
@@ -57,13 +137,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
         includeFilters: includeFilters.split('\n').map((s) => s.trim()).filter(Boolean),
         subtractedFilters: subtractedFilters.split('\n').map((s) => s.trim()).filter(Boolean),
       });
-      // 成功時リセットして閉じる
-      setUrl('');
-      setTitle('');
-      setIncludeFilters('');
-      setSubtractedFilters('');
-      setShowAdvanced(false);
-      onClose();
+      handleClose();
     } catch (err: any) {
       setError(err.message || '登録に失敗しました');
     } finally {
@@ -76,191 +150,243 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
       <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         {/* ヘッダー */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-base font-bold text-slate-900">新しい監視対象を登録</h2>
+          <div className="flex items-center space-x-2">
+            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">
+              {step === 1 ? 'Step 1/3' : 'Step 3/3'}
+            </span>
+            <h2 className="text-base font-bold text-slate-900">
+              {step === 1 ? '監視対象URLの入力' : '登録オプションの設定'}
+            </h2>
+          </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* フォーム */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1">
-          {error && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center space-x-2">
-              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+        {error && (
+          <div className="mx-5 mt-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-center space-x-2">
+            <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
 
-          {/* URL */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-semibold text-slate-700">
-                監視対象のURL <span className="text-rose-500">*</span>
+        {/* ---------------------------------------------------- */}
+        {/* Step 1: URL入力画面 */}
+        {/* ---------------------------------------------------- */}
+        {step === 1 && (
+          <form onSubmit={handleProceedToPicker} className="p-5 space-y-5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                監視したいWebページのURL <span className="text-rose-500">*</span>
               </label>
+              <input
+                type="url"
+                required
+                autoFocus
+                placeholder="https://example.com/comics/123"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition shadow-sm"
+              />
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                次のステップで、このページのどの要素（話数や価格など）を見張るか画面上で選択します。
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end space-x-2">
               <button
                 type="button"
-                disabled={!url}
-                onClick={() => setIsPickerOpen(true)}
-                className="inline-flex items-center text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-40 transition"
+                onClick={handleClose}
+                className="px-4 py-2.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
               >
-                <MousePointerClick className="w-3.5 h-3.5 mr-1" />
-                画面から要素をタップ選択
+                キャンセル
+              </button>
+              <button
+                type="submit"
+                disabled={loadingInfo || !url}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-md shadow-indigo-200 flex items-center space-x-1.5"
+              >
+                {loadingInfo ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                    <span>読み込み中...</span>
+                  </>
+                ) : (
+                  <>
+                    <MousePointerClick className="w-4 h-4" />
+                    <span>次へ（要素を選択）</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </div>
-            <input
-              type="url"
-              required
-              placeholder="https://example.com/item/123"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
-            />
-          </div>
+          </form>
+        )}
 
-          {/* タイトル */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              表示名（任意）
-            </label>
-            <input
-              type="text"
-              placeholder="例: ○○商品の在庫状況"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
-            />
-          </div>
-
-          {/* 監視頻度 */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center">
-              <Clock className="w-3.5 h-3.5 mr-1 text-slate-400" />
-              チェック頻度
-            </label>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-              {INTERVAL_PRESETS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => setIntervalMinutes(p.value)}
-                  className={`py-2 text-xs font-medium rounded-lg border transition ${
-                    intervalMinutes === p.value
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
+        {/* ---------------------------------------------------- */}
+        {/* Step 3: 登録オプション入力画面 */}
+        {/* ---------------------------------------------------- */}
+        {step === 3 && (
+          <form onSubmit={handleFinalSubmit} className="p-5 overflow-y-auto space-y-4 flex-1">
+            {/* 表示名 */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center">
+                <FileText className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                表示名（デフォルト: 対象ページのタイトル）
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="監視名を入力..."
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
+              />
             </div>
-          </div>
 
-          {/* 通知トピック */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center">
-              <Bell className="w-3.5 h-3.5 mr-1 text-slate-400" />
-              ntfy 通知トピック
-            </label>
-            <input
-              type="text"
-              placeholder="dryeyes"
-              value={notificationTopic}
-              onChange={(e) => setNotificationTopic(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
-            />
-            <p className="text-[11px] text-slate-400 mt-1">
-              スマートフォン等のntfyアプリで購読するトピック名です。
-            </p>
-          </div>
-
-          {/* 詳細設定アコーディオン */}
-          <div className="border-t border-slate-100 pt-3">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center justify-between w-full text-xs font-medium text-slate-600 hover:text-slate-900 py-1"
-            >
-              <span className="flex items-center">
-                <Target className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                特定要素の監視・除外設定（高度な設定）
-              </span>
-              {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
-
-            {showAdvanced && (
-              <div className="space-y-3 mt-3 p-3 bg-slate-50 border border-slate-200/80 rounded-xl animate-fadeIn">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    監視する要素（CSS Selector または XPath、改行区切り）
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder=".price, #in-stock"
-                    value={includeFilters}
-                    onChange={(e) => setIncludeFilters(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    指定した要素の中身だけを監視します（空欄の場合はページ全体）。
-                  </p>
+            {/* 監視対象から抽出した文字列（初期バージョン確認用） */}
+            {extractedText && (
+              <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1">
+                <div className="text-[11px] font-semibold text-indigo-900 flex items-center">
+                  <Sparkles className="w-3.5 h-3.5 mr-1 text-indigo-600" />
+                  選択した要素のテキスト（初期状態）
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    除外する要素（広告・タイムスタンプなど、改行区切り）
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder=".advertisement, .timestamp, footer"
-                    value={subtractedFilters}
-                    onChange={(e) => setSubtractedFilters(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    差分検出から除外したい要素を指定します。
-                  </p>
+                <div className="text-xs font-mono text-indigo-700 bg-white/80 p-2 rounded-lg border border-indigo-100/80 truncate">
+                  {extractedText}
                 </div>
+                <p className="text-[10px] text-indigo-500">
+                  ※この文字列やリストが変化した際に更新として検知・通知されます。
+                </p>
               </div>
             )}
-          </div>
 
-          {/* フッター */}
-          <div className="pt-2 flex items-center justify-end space-x-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
-            >
-              キャンセル
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-sm shadow-indigo-200"
-            >
-              {submitting ? '登録中...' : '監視を開始する'}
-            </button>
-          </div>
-        </form>
+            {/* チェック間隔（デフォルト: 1時間） */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center">
+                <Clock className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                チェック間隔（デフォルト: 1時間）
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                {INTERVAL_PRESETS.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setIntervalMinutes(p.value)}
+                    className={`py-2 text-xs font-medium rounded-lg border transition ${
+                      intervalMinutes === p.value
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 通知トピック */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center">
+                <Bell className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                ntfy 通知トピック
+              </label>
+              <input
+                type="text"
+                placeholder="dryeyes"
+                value={notificationTopic}
+                onChange={(e) => setNotificationTopic(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
+              />
+            </div>
+
+            {/* 特定要素の監視・除外設定（アコーディオン） */}
+            <div className="border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex items-center justify-between w-full text-xs font-medium text-slate-600 hover:text-slate-900 py-1"
+              >
+                <span className="flex items-center">
+                  <Target className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                  特定要素の監視・除外設定（XPath / セレクタ）
+                </span>
+                {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+
+              {showAdvanced && (
+                <div className="space-y-3 mt-3 p-3 bg-slate-50 border border-slate-200/80 rounded-xl animate-fadeIn">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      監視する要素（XPath / CSS Selector、改行区切り）
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="//*[@id='...']"
+                      value={includeFilters}
+                      onChange={(e) => setIncludeFilters(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      除外する要素（広告・タイムスタンプなど、改行区切り）
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder=".advertisement, .timestamp"
+                      value={subtractedFilters}
+                      onChange={(e) => setSubtractedFilters(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* フッター */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setIsPickerOpen(true)}
+                className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition flex items-center space-x-1"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 mr-1" />
+                <span>要素を選び直す</span>
+              </button>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={submitting}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-sm shadow-indigo-200 flex items-center space-x-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{submitting ? '登録中...' : '監視を登録する（OK）'}</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
       </div>
 
-      {/* ビジュアル要素ピッカーモーダル */}
+      {/* Step 2: ビジュアル要素ピッカーモーダル */}
       <VisualElementPickerModal
         isOpen={isPickerOpen}
         targetUrl={url}
         onClose={() => setIsPickerOpen(false)}
-        onSelectXPath={(xpath, isExclude) => {
-          setShowAdvanced(true);
-          if (isExclude) {
-            setSubtractedFilters((prev) => (prev ? `${prev}\n${xpath}` : xpath));
-          } else {
-            setIncludeFilters((prev) => (prev ? `${prev}\n${xpath}` : xpath));
-          }
-        }}
+        onSelectXPath={handlePickerSelect}
       />
     </div>
   );

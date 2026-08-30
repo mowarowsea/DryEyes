@@ -220,3 +220,21 @@ export async function fetchProxyPage(targetUrl: string): Promise<string> {
 
   return html;
 }
+
+export async function getPageInfo(targetUrl: string): Promise<{ title: string; url: string }> {
+  try {
+    const response = await axios.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      responseType: 'text',
+      timeout: 8000,
+    });
+    const html = response.data;
+    const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = match ? match[1].trim() : '';
+    return { title: title || targetUrl, url: targetUrl };
+  } catch (e) {
+    return { title: targetUrl, url: targetUrl };
+  }
+}

@@ -1,7 +1,16 @@
 import { Router } from 'express';
-import { fetchProxyPage } from '../services/proxy.js';
+import { fetchProxyPage, getPageInfo } from '../services/proxy.js';
 
 export const proxyRouter = Router();
+
+proxyRouter.get('/info', async (req, res) => {
+  const targetUrl = req.query.url as string;
+  if (!targetUrl) {
+    return res.status(400).json({ error: 'url parameter is required' });
+  }
+  const info = await getPageInfo(targetUrl);
+  res.json(info);
+});
 
 proxyRouter.get('/page', async (req, res) => {
   const targetUrl = req.query.url as string;

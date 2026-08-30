@@ -9,6 +9,12 @@ export const api = {
     return res.json();
   },
 
+  async getPageInfo(url: string): Promise<{ title: string; url: string }> {
+    const res = await fetch(`${API_BASE}/proxy/info?url=${encodeURIComponent(url)}`);
+    if (!res.ok) return { title: url, url };
+    return res.json();
+  },
+
   async getWatches(): Promise<WatchModel[]> {
     const res = await fetch(`${API_BASE}/watches`);
     if (!res.ok) throw new Error('Failed to fetch watches');
