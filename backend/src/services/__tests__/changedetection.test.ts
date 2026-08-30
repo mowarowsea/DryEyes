@@ -6,7 +6,8 @@ vi.mock('axios');
 // config は読み込み時に環境変数を解決するため、import より先に通知タップ先を固定する
 // （既定値はマシンの LAN IP になるのでテストで固定できない）
 process.env.APP_BASE_URL = 'http://192.168.0.10:3010';
-const { ChangedetectionClient } = await import('../changedetection.js');
+const { ChangedetectionClient, NOTIFICATION_TITLE, NOTIFICATION_BODY, NOTIFICATION_FORMAT } =
+  await import('../changedetection.js');
 
 const CLICK = 'click=http%3A%2F%2F192.168.0.10%3A3010%2F%3Fwatch%3D{{watch_uuid}}';
 
@@ -89,28 +90,38 @@ describe('ChangedetectionClient', () => {
       title: 'My Watch',
       fetch_backend: 'html_webdriver',
       notification_urls: [`ntfy://host.docker.internal:8085/dryeyes-alice-aaaaaa-alerts?${CLICK}`],
+      notification_title: NOTIFICATION_TITLE,
+      notification_body: NOTIFICATION_BODY,
+      notification_format: NOTIFICATION_FORMAT,
       time_between_check: { minutes: 30 },
       include_filters: ['.main-content'],
       subtracted_filters: ['.footer'],
     }));
 
+    // 差分をそのまま載せると ntfy 側で弾かれるため、本文は必ず切り詰めた平文にする
+    expect(NOTIFICATION_BODY).toContain('truncate(');
+    expect(NOTIFICATION_FORMAT).toBe('text');
+
     expect(created.id).toBe('new-uuid');
   });
 
-  it('should add the click url to existing watches without touching their topic', async () => {
+  it('should sync click url and notification template without touching their topic', async () => {
     mockAxiosInstance.get
       .mockResolvedValueOnce({ data: { 'uuid-1': {}, 'uuid-2': {} } })
       .mockResolvedValueOnce({
         data: { notification_urls: ['ntfy://host.docker.internal:8085/topic-a'] },
       })
-      // 既に同じ click が入っている監視は更新しない
+      // click もテンプレートも現行のものになっている監視は更新しない
       .mockResolvedValueOnce({
         data: {
           notification_urls: [`ntfy://host.docker.internal:8085/topic-b?${CLICK}`],
+          notification_title: NOTIFICATION_TITLE,
+          notification_body: NOTIFICATION_BODY,
+          notification_format: NOTIFICATION_FORMAT,
         },
       });
 
-    const updated = await client.refreshNotificationClickUrls(
+    const updated = await client.syncNotificationSettings(
       'http://192.168.0.10:3010/?watch={{watch_uuid}}'
     );
 
@@ -118,6 +129,9 @@ describe('ChangedetectionClient', () => {
     expect(mockAxiosInstance.put).toHaveBeenCalledTimes(1);
     expect(mockAxiosInstance.put).toHaveBeenCalledWith('/api/v1/watch/uuid-1', {
       notification_urls: [`ntfy://host.docker.internal:8085/topic-a?${CLICK}`],
+      notification_title: NOTIFICATION_TITLE,
+      notification_body: NOTIFICATION_BODY,
+      notification_format: NOTIFICATION_FORMAT,
     });
   });
 

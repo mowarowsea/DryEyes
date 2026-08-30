@@ -26,16 +26,17 @@ app.listen(config.port, async () => {
   console.log(`[DryEyes BFF] 通知タップで開く URL: ${config.app.baseUrl}`);
   console.log(`[DryEyes BFF] データ保存先: ${config.dataDir}`);
 
-  // 既存の監視にも通知タップ先を行き渡らせる（changedetection.io 側の設定なので起動時に揃える）
+  // 既存の監視にも通知タップ先とテンプレートを行き渡らせる
+  // （changedetection.io 側の設定なので起動時に揃える）
   try {
-    const updated = await changedetectionClient.refreshNotificationClickUrls(
+    const updated = await changedetectionClient.syncNotificationSettings(
       buildWatchClickUrl(config.app.baseUrl)
     );
     if (updated > 0) {
-      console.log(`[DryEyes BFF] 既存監視 ${updated} 件の通知タップ先を更新しました`);
+      console.log(`[DryEyes BFF] 既存監視 ${updated} 件の通知設定を更新しました`);
     }
   } catch (err: any) {
     // changedetection.io が起動していないだけのこともあるので致命的には扱わない
-    console.warn('[DryEyes BFF] 通知タップ先の更新に失敗しました:', err.message);
+    console.warn('[DryEyes BFF] 通知設定の同期に失敗しました:', err.message);
   }
 });

@@ -8,6 +8,18 @@ import {
 } from './ntfyTopic.js';
 import { CreateWatchDto, UpdateWatchDto, WatchModel, WatchHistoryItem } from '../types/index.js';
 
+// ntfy へ送る通知のテンプレート。
+// Apprise の ntfy プラグインは送信 JSON が 8000 文字を超えると本文を .txt 添付へ切り替えるが、
+// 添付を許可していない ntfy サーバーは 400 (attachments not allowed) を返し、通知そのものが消える。
+// そのため差分が長い監視でも本文に収まるよう、平文フォーマットにした上で diff を切り詰める。
+// (JSON 化で日本語は \uXXXX へ展開され 1 文字が 6 文字分を占めるため、上限は小さめに取る)
+const NOTIFICATION_DIFF_LIMIT = 600;
+export const NOTIFICATION_FORMAT = 'text';
+export const NOTIFICATION_TITLE = '[DryEyes] {{ watch_title }} が更新されました';
+export const NOTIFICATION_BODY =
+  '{{ watch_url }} で変更を検知しました。\nDiff:\n' +
+  `{{ diff | truncate(${NOTIFICATION_DIFF_LIMIT}, True, ' …(省略)') }}`;
+
 // changedetection.io が返したエラー本文を握り潰さずに呼び出し元へ伝える
 function wrapApiError(err: any, context: string): Error {
   const body = err?.response?.data;
@@ -76,8 +88,9 @@ export class ChangedetectionClient {
       fetch_backend: dto.fetchBackend || 'html_webdriver',
       tag: dto.tag || '',
       notification_urls: [ntfyUrl],
-      notification_title: `[DryEyes] {{ watch_title }} が更新されました`,
-      notification_body: `{{ watch_url }} で変更を検知しました。\nDiff:\n{{ diff }}`,
+      notification_title: NOTIFICATION_TITLE,
+      notification_body: NOTIFICATION_BODY,
+      notification_format: NOTIFICATION_FORMAT,
     };
 
     if (dto.checkIntervalMinutes) {
@@ -120,6 +133,10 @@ export class ChangedetectionClient {
       payload.notification_urls = [
         toAppriseNtfyUrl(config.ntfy.internalUrl, topic, buildWatchClickUrl(config.app.baseUrl)),
       ];
+      // 通知先を触るタイミングで本文テンプレートも現行のものに揃えておく
+      payload.notification_title = NOTIFICATION_TITLE;
+      payload.notification_body = NOTIFICATION_BODY;
+      payload.notification_format = NOTIFICATION_FORMAT;
     }
 
     if (dto.checkIntervalMinutes !== undefined) {
@@ -144,10 +161,13 @@ export class ChangedetectionClient {
     return this.getWatch(uuid);
   }
 
-  // 既存監視の通知 URL に、現在の click（差分画面を開くリンク）を反映する。
+  // 既存監視の通知設定を現在の DryEyes の既定へ揃える。
+  //  - 通知タップ先 (click) を現在の APP_BASE_URL に合わせる
+  //  - 通知本文・フォーマットを現行テンプレートに合わせる
+  //    （diff 全文を送っていた頃の監視は ntfy に弾かれて通知が届かないため）
   // 機能追加前に作られた監視や、APP_BASE_URL を変えたときのために起動時に一度だけ実行する。
   // 一覧 API は notification_urls を返さないため、監視ごとに取得して差分があるものだけ更新する。
-  async refreshNotificationClickUrls(clickUrl: string): Promise<number> {
+  async syncNotificationSettings(clickUrl: string): Promise<number> {
     const res = await this.client.get('/api/v1/watch');
     let updated = 0;
 
@@ -159,12 +179,26 @@ export class ChangedetectionClient {
       // 通知先が未設定の監視（changedetection.io 側の共通設定を使うもの）は触らない
       if (urls.length === 0) continue;
 
+      const payload: Record<string, any> = {};
+
       const next = urls.map((url) =>
         /^ntfys?:\/\//.test(url) ? withClickParam(url, clickUrl) : url
       );
-      if (next.every((url, i) => url === urls[i])) continue;
+      if (next.some((url, i) => url !== urls[i])) payload.notification_urls = next;
 
-      await this.client.put(`/api/v1/watch/${uuid}`, { notification_urls: next });
+      if (detail.data?.notification_title !== NOTIFICATION_TITLE) {
+        payload.notification_title = NOTIFICATION_TITLE;
+      }
+      if (detail.data?.notification_body !== NOTIFICATION_BODY) {
+        payload.notification_body = NOTIFICATION_BODY;
+      }
+      if (detail.data?.notification_format !== NOTIFICATION_FORMAT) {
+        payload.notification_format = NOTIFICATION_FORMAT;
+      }
+
+      if (Object.keys(payload).length === 0) continue;
+
+      await this.client.put(`/api/v1/watch/${uuid}`, payload);
       updated++;
     }
 
