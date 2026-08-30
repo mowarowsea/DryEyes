@@ -1,0 +1,31 @@
+services:
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    container_name: dryeyes-changedetection
+    hostname: changedetection
+    volumes:
+      - changedetection-data:/datastore
+    environment:
+      - PLAYWRIGHT_DRIVER_URL=ws://sockpuppetbrowser:3000
+      - BASE_URL=http://localhost:5000
+      - HIDE_REFERER=true
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    depends_on:
+      sockpuppetbrowser:
+        condition: service_started
+
+  sockpuppetbrowser:
+    image: dgtlmoon/sockpuppetbrowser:latest
+    container_name: dryeyes-browser
+    hostname: sockpuppetbrowser
+    environment:
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1080
+      - SCREEN_DEPTH=16
+      - MAX_CONCURRENT_CHROME_PROCESSES=10
+    restart: unless-stopped
+
+volumes:
+  changedetection-data:
