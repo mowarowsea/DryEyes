@@ -14,8 +14,51 @@ const INSPECTOR_SCRIPT = `
       background-color: rgba(79, 70, 229, 0.15) !important;
       cursor: crosshair !important;
     }
+    .dryeyes-inspect-batch-highlight {
+      outline: 2px dashed #9333ea !important;
+      background-color: rgba(147, 51, 234, 0.2) !important;
+      transition: all 0.2s ease !important;
+    }
   \`;
   document.head.appendChild(style);
+
+  let batchHighlightedElements = [];
+
+  function clearBatchHighlight() {
+    batchHighlightedElements.forEach(el => {
+      if (el && el.classList) {
+        el.classList.remove('dryeyes-inspect-batch-highlight');
+      }
+    });
+    batchHighlightedElements = [];
+  }
+
+  function applyBatchHighlight(xpath) {
+    clearBatchHighlight();
+    if (!xpath) return;
+    try {
+      const res = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+      for (let i = 0; i < res.snapshotLength; i++) {
+        const node = res.snapshotItem(i);
+        if (node && node.nodeType === 1) {
+          node.classList.add('dryeyes-inspect-batch-highlight');
+          batchHighlightedElements.push(node);
+        }
+      }
+    } catch (e) {
+      console.error('[DryEyes Inspector] Failed to highlight xpath:', e);
+    }
+  }
+
+  // 親ウィンドウからのメッセージリスナー（一括ハイライト指示）
+  window.addEventListener('message', function(event) {
+    if (!event.data) return;
+    if (event.data.type === 'DRYEYES_HIGHLIGHT_XPATH') {
+      applyBatchHighlight(event.data.xpath);
+    } else if (event.data.type === 'DRYEYES_CLEAR_HIGHLIGHT') {
+      clearBatchHighlight();
+    }
+  });
 
   // XPath 計算ヘルパー（厳密な単一要素）
   function getExactXPath(element) {

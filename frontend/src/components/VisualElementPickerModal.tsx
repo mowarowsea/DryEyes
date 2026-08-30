@@ -24,8 +24,20 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   onSelectXPath,
 }) => {
   const [selectedElement, setSelectedElement] = useState<SelectedElementData | null>(null);
+  const [targetMode, setTargetMode] = useState<'single' | 'similar'>('single');
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // iframeへのハイライト指示
+  const sendHighlightToIframe = (xpath: string) => {
+    const iframe = document.getElementById('dryeyes-preview-iframe') as HTMLIFrameElement | null;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({
+        type: 'DRYEYES_HIGHLIGHT_XPATH',
+        xpath,
+      }, '*');
+    }
+  };
 
   // iframeからのメッセージリスナー
   useEffect(() => {
@@ -33,7 +45,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
     const handleMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'DRYEYES_ELEMENT_SELECTED') {
-        setSelectedElement(event.data.payload);
+        const payload: SelectedElementData = event.data.payload;
+        setSelectedElement(payload);
+        setTargetMode('single');
+        // 最初は単一要素をハイライト
+        sendHighlightToIframe(payload.xpath);
       }
     };
 
@@ -45,11 +61,20 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   const proxyUrl = `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`;
 
-  const handleApply = (isExclude: boolean, useSimilar: boolean = false) => {
+  // 「類似要素も監視」トグル切り替え
+  const handleToggleSimilar = (toSimilar: boolean) => {
     if (!selectedElement) return;
-    const targetPath = useSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
-    if (targetPath) {
-      onSelectXPath(targetPath, isExclude);
+    setTargetMode(toSimilar ? 'similar' : 'single');
+    const path = toSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
+    sendHighlightToIframe(path);
+  };
+
+  // 確定（OK）
+  const handleConfirm = (isExclude: boolean = false) => {
+    if (!selectedElement) return;
+    const finalXPath = targetMode === 'similar' && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
+    if (finalXPath) {
+      onSelectXPath(finalXPath, isExclude);
       onClose();
     }
   };
@@ -74,6 +99,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             <button
               onClick={() => {
                 setLoading(true);
+                setSelectedElement(null);
                 setIframeKey((k) => k + 1);
               }}
               className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
@@ -94,10 +120,12 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-2 flex items-center justify-between text-xs text-indigo-900">
           <span className="flex items-center font-medium">
             <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping mr-2" />
-            画面上の見張りたい要素（話数・新着リスト・価格など）をタップしてください
+            {targetMode === 'similar'
+              ? '✨ 類似要素（全話数など）を一括ハイライト表示しています'
+              : '画面上の見張りたい要素（話数・新着・価格など）をタップしてください'}
           </span>
           <span className="text-[11px] text-indigo-600 hidden sm:inline">
-            ※類似要素（第○○話の一覧など）もワンタップで一括監視できます
+            ※類似要素ボタンで画面全体の対象箇所を確認できます
           </span>
         </div>
 
@@ -110,6 +138,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             </div>
           )}
           <iframe
+            id="dryeyes-preview-iframe"
             key={iframeKey}
             src={proxyUrl}
             onLoad={() => setLoading(false)}
@@ -137,14 +166,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] font-mono text-slate-500 truncate" title={selectedElement.xpath}>
-                  単一: <span className="text-slate-600">{selectedElement.xpath}</span>
+                <div className="text-[11px] font-mono text-slate-600 truncate" title={targetMode === 'similar' ? selectedElement.similarXPath : selectedElement.xpath}>
+                  対象XPath: <span className={targetMode === 'similar' ? 'text-purple-700 font-semibold' : 'text-indigo-600 font-semibold'}>
+                    {targetMode === 'similar' ? selectedElement.similarXPath : selectedElement.xpath}
+                  </span>
                 </div>
-                {hasSimilarElements && (
-                  <div className="text-[11px] font-mono text-purple-700 truncate" title={selectedElement.similarXPath}>
-                    類似一括: <span className="font-semibold">{selectedElement.similarXPath}</span>
-                  </div>
-                )}
               </div>
             ) : (
               <div className="flex items-center text-xs text-slate-400">
@@ -155,42 +181,48 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
           </div>
 
           <div className="flex items-center flex-wrap gap-2">
+            {/* 類似要素切り替えボタン */}
+            {hasSimilarElements && (
+              <button
+                type="button"
+                onClick={() => handleToggleSimilar(targetMode !== 'similar')}
+                disabled={!selectedElement}
+                className={`px-3.5 py-2 text-xs font-medium rounded-xl border transition flex items-center space-x-1.5 ${
+                  targetMode === 'similar'
+                    ? 'bg-purple-50 text-purple-700 border-purple-300 ring-2 ring-purple-500/20'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <Layers className={`w-3.5 h-3.5 ${targetMode === 'similar' ? 'text-purple-600' : 'text-slate-400'}`} />
+                <span>
+                  {targetMode === 'similar'
+                    ? `類似要素（${selectedElement?.similarCount}件）をハイライト中`
+                    : `類似要素も監視（${selectedElement?.similarCount}件をハイライト）`}
+                </span>
+              </button>
+            )}
+
             <button
-              onClick={() => handleApply(true, false)}
+              onClick={() => handleConfirm(true)}
               disabled={!selectedElement}
               className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-40 transition rounded-xl"
             >
-              除外対象に設定
+              除外に設定
             </button>
 
+            {/* OK・決定ボタン */}
             <button
-              onClick={() => handleApply(false, false)}
+              onClick={() => handleConfirm(false)}
               disabled={!selectedElement}
-              className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-40 transition rounded-xl"
+              className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm shadow-indigo-200 flex items-center justify-center space-x-1.5"
             >
-              この要素のみ監視
+              <Check className="w-4 h-4" />
+              <span>
+                {targetMode === 'similar'
+                  ? `OK（類似${selectedElement?.similarCount}件を監視）`
+                  : 'OK（この要素を監視）'}
+              </span>
             </button>
-
-            {hasSimilarElements && (
-              <button
-                onClick={() => handleApply(false, true)}
-                disabled={!selectedElement}
-                className="flex-1 sm:flex-none px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-md shadow-indigo-200 flex items-center justify-center space-x-1"
-              >
-                <Layers className="w-3.5 h-3.5 mr-1" />
-                <span>類似要素もすべて監視（{selectedElement?.similarCount}件）</span>
-              </button>
-            )}
-            {!hasSimilarElements && (
-              <button
-                onClick={() => handleApply(false, false)}
-                disabled={!selectedElement}
-                className="flex-1 sm:flex-none px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm shadow-indigo-200 flex items-center justify-center space-x-1"
-              >
-                <Check className="w-3.5 h-3.5 mr-1" />
-                <span>この要素を監視する</span>
-              </button>
-            )}
           </div>
         </div>
       </div>
