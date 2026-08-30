@@ -24,7 +24,7 @@ DryEyes は、指定したWebページを定期的に監視し、**ユーザー�
 - **新規登録**:
   - URL (必須)
   - 表示名 (任意)
-  - 取得モード (`通常 HTTP` / `ブラウザ Playwright`)
+  - 取得モード: ブラウザ監視 (`html_playwright`) 固定（JavaScript実行・動的ページ完全対応）
   - 監視頻度 (5分, 10分, 30分, 1時間, 6時間, 24時間)
   - ntfy 通知トピック (デフォルト: `dryeyes`)
   - 特定要素監視フィルタ (CSS Selector / XPath)

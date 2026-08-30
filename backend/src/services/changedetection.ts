@@ -48,7 +48,7 @@ export class ChangedetectionClient {
     const payload: Record<string, any> = {
       url: dto.url,
       title: dto.title || dto.url,
-      fetch_backend: dto.fetchBackend || 'html_requests',
+      fetch_backend: dto.fetchBackend || 'html_playwright',
       tag: dto.tag || '',
       notification_urls: [ntfyUrl],
       notification_title: `[DryEyes] {{ watch_title }} が更新されました`,

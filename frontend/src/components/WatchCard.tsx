@@ -7,8 +7,6 @@ import {
   AlertTriangle,
   CheckCircle,
   Clock,
-  Globe,
-  Monitor,
   Pause,
 } from 'lucide-react';
 import { WatchModel } from '../types';
@@ -101,19 +99,6 @@ export const WatchCard: React.FC<WatchCardProps> = ({
         <div className="flex-1 min-w-0">
           <div className="flex items-center space-x-2 mb-1">
             {statusBadge}
-            <span className="inline-flex items-center text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-              {watch.fetchBackend === 'html_playwright' || watch.fetchBackend === 'html_webdriver' ? (
-                <>
-                  <Monitor className="w-3 h-3 mr-1 text-indigo-500" />
-                  ブラウザ
-                </>
-              ) : (
-                <>
-                  <Globe className="w-3 h-3 mr-1 text-slate-500" />
-                  HTTP
-                </>
-              )}
-            </span>
             <span className="inline-flex items-center text-[11px] text-slate-400">
               <Clock className="w-3 h-3 mr-0.5" />
               {watch.checkIntervalMinutes}分毎
