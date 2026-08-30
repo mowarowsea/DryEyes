@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, MousePointerClick, Check, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, MousePointerClick, Check, AlertCircle, RefreshCw, Layers } from 'lucide-react';
 
 interface SelectedElementData {
   xpath: string;
+  similarXPath: string;
+  similarCount: number;
   selector: string;
   text: string;
   tagName: string;
@@ -43,12 +45,16 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   const proxyUrl = `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`;
 
-  const handleApply = (isExclude: boolean) => {
-    if (selectedElement?.xpath) {
-      onSelectXPath(selectedElement.xpath, isExclude);
+  const handleApply = (isExclude: boolean, useSimilar: boolean = false) => {
+    if (!selectedElement) return;
+    const targetPath = useSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
+    if (targetPath) {
+      onSelectXPath(targetPath, isExclude);
       onClose();
     }
   };
+
+  const hasSimilarElements = (selectedElement?.similarCount ?? 0) > 1;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
@@ -88,10 +94,10 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         <div className="bg-indigo-50 border-b border-indigo-100 px-4 py-2 flex items-center justify-between text-xs text-indigo-900">
           <span className="flex items-center font-medium">
             <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping mr-2" />
-            画面上の見張りたい要素（価格・在庫状況・テキストなど）をタップしてください
+            画面上の見張りたい要素（話数・新着リスト・価格など）をタップしてください
           </span>
           <span className="text-[11px] text-indigo-600 hidden sm:inline">
-            ※ホバーすると青枠が表示されます
+            ※類似要素（第○○話の一覧など）もワンタップで一括監視できます
           </span>
         </div>
 
@@ -114,7 +120,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         </div>
 
         {/* 選択された要素の確認 & 確定フッター */}
-        <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg">
+        <div className="p-3 sm:p-4 bg-white border-t border-slate-200 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 shadow-lg">
           <div className="flex-1 min-w-0">
             {selectedElement ? (
               <div className="space-y-1">
@@ -125,10 +131,20 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                   <span className="text-xs font-semibold text-slate-800 truncate">
                     {selectedElement.text || '(テキストなし)'}
                   </span>
+                  {hasSimilarElements && (
+                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-semibold rounded-full">
+                      類似要素 {selectedElement.similarCount} 件検出
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] font-mono text-slate-500 truncate" title={selectedElement.xpath}>
-                  XPath: <span className="text-indigo-600 font-medium">{selectedElement.xpath}</span>
+                  単一: <span className="text-slate-600">{selectedElement.xpath}</span>
                 </div>
+                {hasSimilarElements && (
+                  <div className="text-[11px] font-mono text-purple-700 truncate" title={selectedElement.similarXPath}>
+                    類似一括: <span className="font-semibold">{selectedElement.similarXPath}</span>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center text-xs text-slate-400">
@@ -138,22 +154,43 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             )}
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center flex-wrap gap-2">
             <button
-              onClick={() => handleApply(true)}
+              onClick={() => handleApply(true, false)}
               disabled={!selectedElement}
-              className="flex-1 sm:flex-none px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-40 transition rounded-xl"
+              className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-40 transition rounded-xl"
             >
               除外対象に設定
             </button>
+
             <button
-              onClick={() => handleApply(false)}
+              onClick={() => handleApply(false, false)}
               disabled={!selectedElement}
-              className="flex-1 sm:flex-none px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm shadow-indigo-200 flex items-center justify-center space-x-1"
+              className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-40 transition rounded-xl"
             >
-              <Check className="w-3.5 h-3.5 mr-1" />
-              <span>この要素を監視する</span>
+              この要素のみ監視
             </button>
+
+            {hasSimilarElements && (
+              <button
+                onClick={() => handleApply(false, true)}
+                disabled={!selectedElement}
+                className="flex-1 sm:flex-none px-4 py-2 text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-md shadow-indigo-200 flex items-center justify-center space-x-1"
+              >
+                <Layers className="w-3.5 h-3.5 mr-1" />
+                <span>類似要素もすべて監視（{selectedElement?.similarCount}件）</span>
+              </button>
+            )}
+            {!hasSimilarElements && (
+              <button
+                onClick={() => handleApply(false, false)}
+                disabled={!selectedElement}
+                className="flex-1 sm:flex-none px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm shadow-indigo-200 flex items-center justify-center space-x-1"
+              >
+                <Check className="w-3.5 h-3.5 mr-1" />
+                <span>この要素を監視する</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
