@@ -5,6 +5,7 @@ interface SelectedElementData {
   xpath: string;
   similarXPath: string;
   similarCount: number;
+  similarTexts?: string[];
   selector: string;
   text: string;
   tagName: string;
@@ -14,7 +15,7 @@ interface VisualElementPickerModalProps {
   isOpen: boolean;
   targetUrl: string;
   onClose: () => void;
-  onSelectXPath: (xpath: string, extractedText: string, isExclude: boolean) => void;
+  onSelectXPath: (xpath: string, extractedTexts: string[], isExclude: boolean) => void;
 }
 
 export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> = ({
@@ -72,16 +73,20 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   // 確定（OK）
   const handleConfirm = (isExclude: boolean = false) => {
     if (!selectedElement) return;
-    const finalXPath = targetMode === 'similar' && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
-    const extractedText = selectedElement.text || '';
+    const isSimilar = targetMode === 'similar';
+    const finalXPath = isSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
+    const texts = isSimilar && selectedElement.similarTexts && selectedElement.similarTexts.length > 0
+      ? selectedElement.similarTexts
+      : (selectedElement.text ? [selectedElement.text] : []);
+
     if (finalXPath) {
-      onSelectXPath(finalXPath, extractedText, isExclude);
+      onSelectXPath(finalXPath, texts, isExclude);
       onClose();
     }
   };
 
   const handleSkip = () => {
-    onSelectXPath('', '', false);
+    onSelectXPath('', [], false);
     onClose();
   };
 

@@ -6,13 +6,13 @@ import {
   Clock,
   Target,
   ShieldAlert,
-  Bell,
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
   FileText,
   MousePointerClick,
   Sparkles,
+  Layers,
 } from 'lucide-react';
 import { CreateWatchDto } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
@@ -48,11 +48,10 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [intervalMinutes, setIntervalMinutes] = useState(60); // デフォルト1時間
-  const [notificationTopic, setNotificationTopic] = useState(defaultTopic);
-  const [extractedText, setExtractedText] = useState('');
+  const [extractedTexts, setExtractedTexts] = useState<string[]>([]);
   const [includeFilters, setIncludeFilters] = useState('');
   const [subtractedFilters, setSubtractedFilters] = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false); // デフォルトでアコーディオンを閉じる
 
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -67,7 +66,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     setUrl('');
     setTitle('');
     setIntervalMinutes(60);
-    setExtractedText('');
+    setExtractedTexts([]);
     setIncludeFilters('');
     setSubtractedFilters('');
     setShowAdvanced(false);
@@ -100,7 +99,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   };
 
   // Step 2: ピッカーで要素を選択した後の処理
-  const handlePickerSelect = (xpath: string, text: string, isExclude: boolean) => {
+  const handlePickerSelect = (xpath: string, texts: string[], isExclude: boolean) => {
     setIsPickerOpen(false);
     if (xpath) {
       if (isExclude) {
@@ -108,11 +107,12 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
       } else {
         setIncludeFilters(xpath);
       }
-      if (text) {
-        setExtractedText(text);
+      if (texts && texts.length > 0) {
+        setExtractedTexts(texts);
       }
-      setShowAdvanced(true);
     }
+    // アコーディオンは閉じたまま維持
+    setShowAdvanced(false);
     // Step 3（登録オプション画面）へ進む
     setStep(3);
   };
@@ -128,12 +128,13 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     try {
       setSubmitting(true);
       setError(null);
+      const chosenTitle = title.trim() || url.trim();
       await onSubmit({
         url: url.trim(),
-        title: title.trim() || undefined,
+        title: chosenTitle,
         fetchBackend: 'html_playwright',
         checkIntervalMinutes: intervalMinutes,
-        notificationTopic: notificationTopic.trim() || defaultTopic,
+        notificationTopic: chosenTitle || defaultTopic, // 表示名をそのまま通知トピックとして使用
         includeFilters: includeFilters.split('\n').map((s) => s.trim()).filter(Boolean),
         subtractedFilters: subtractedFilters.split('\n').map((s) => s.trim()).filter(Boolean),
       });
@@ -247,18 +248,43 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
               />
             </div>
 
-            {/* 監視対象から抽出した文字列（初期バージョン確認用） */}
-            {extractedText && (
-              <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1">
-                <div className="text-[11px] font-semibold text-indigo-900 flex items-center">
-                  <Sparkles className="w-3.5 h-3.5 mr-1 text-indigo-600" />
-                  選択した要素のテキスト（初期状態）
+            {/* 監視対象から抽出した文字列（初期バージョン・全件表示） */}
+            {extractedTexts.length > 0 && (
+              <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-indigo-900">
+                  <span className="flex items-center">
+                    {extractedTexts.length > 1 ? (
+                      <Layers className="w-3.5 h-3.5 mr-1 text-purple-600" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 mr-1 text-indigo-600" />
+                    )}
+                    {extractedTexts.length > 1
+                      ? `監視対象の要素一覧（全 ${extractedTexts.length} 件）`
+                      : '監視対象の要素テキスト（初期状態）'}
+                  </span>
+                  {extractedTexts.length > 1 && (
+                    <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">
+                      類似一括監視
+                    </span>
+                  )}
                 </div>
-                <div className="text-xs font-mono text-indigo-700 bg-white/80 p-2 rounded-lg border border-indigo-100/80 truncate">
-                  {extractedText}
+
+                {/* 全件スクロールリスト */}
+                <div className="max-h-36 overflow-y-auto space-y-1 bg-white/90 p-2 rounded-lg border border-indigo-100/80">
+                  {extractedTexts.map((txt, idx) => (
+                    <div
+                      key={idx}
+                      className="text-xs font-mono text-slate-700 truncate bg-slate-50 px-2 py-1 rounded border border-slate-200/60"
+                      title={txt}
+                    >
+                      <span className="text-[10px] text-slate-400 font-sans mr-1.5">#{idx + 1}</span>
+                      {txt}
+                    </div>
+                  ))}
                 </div>
+
                 <p className="text-[10px] text-indigo-500">
-                  ※この文字列やリストが変化した際に更新として検知・通知されます。
+                  ※このリストに新しい話数や要素が追加・変化した際に、自動で更新検知・通知されます。
                 </p>
               </div>
             )}
@@ -287,22 +313,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
               </div>
             </div>
 
-            {/* 通知トピック */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center">
-                <Bell className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                ntfy 通知トピック
-              </label>
-              <input
-                type="text"
-                placeholder="dryeyes"
-                value={notificationTopic}
-                onChange={(e) => setNotificationTopic(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
-              />
-            </div>
-
-            {/* 特定要素の監視・除外設定（アコーディオン） */}
+            {/* 特定要素の監視・除外設定（デフォルト閉じのアコーディオン） */}
             <div className="border-t border-slate-100 pt-3">
               <button
                 type="button"
@@ -311,7 +322,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
               >
                 <span className="flex items-center">
                   <Target className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                  特定要素の監視・除外設定（XPath / セレクタ）
+                  特定要素の監視・除外設定（XPath / セレクタ詳細）
                 </span>
                 {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </button>

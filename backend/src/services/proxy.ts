@@ -159,6 +159,25 @@ const INSPECTOR_SCRIPT = `
     }
   }, true);
 
+  // 類似要素のテキスト一覧取得ヘルパー
+  function getSimilarTexts(xpath) {
+    if (!xpath) return [];
+    const texts = [];
+    try {
+      const res = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+      for (let i = 0; i < res.snapshotLength; i++) {
+        const node = res.snapshotItem(i);
+        if (node && node.nodeType === 1) {
+          const t = (node.innerText || node.textContent || '').trim().replace(/\\s+/g, ' ');
+          if (t) {
+            texts.push(t.substring(0, 100));
+          }
+        }
+      }
+    } catch (e) {}
+    return texts;
+  }
+
   // クリック/タップ
   document.addEventListener('click', function(e) {
     e.preventDefault();
@@ -168,7 +187,8 @@ const INSPECTOR_SCRIPT = `
     const exactXPath = getExactXPath(target);
     const similar = getSimilarXPath(target, exactXPath);
     const selector = getCssSelector(target);
-    const text = (target.innerText || target.textContent || '').trim().substring(0, 80);
+    const text = (target.innerText || target.textContent || '').trim().replace(/\\s+/g, ' ').substring(0, 100);
+    const similarTexts = getSimilarTexts(similar.xpath);
 
     window.parent.postMessage({
       type: 'DRYEYES_ELEMENT_SELECTED',
@@ -176,6 +196,7 @@ const INSPECTOR_SCRIPT = `
         xpath: exactXPath,
         similarXPath: similar.xpath,
         similarCount: similar.count,
+        similarTexts: similarTexts.length > 0 ? similarTexts : [text],
         selector,
         text,
         tagName: target.tagName.toLowerCase()
