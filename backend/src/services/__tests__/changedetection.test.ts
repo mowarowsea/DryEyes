@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ChangedetectionClient } from '../changedetection.js';
 import axios from 'axios';
 
 vi.mock('axios');
 
+// config は読み込み時に環境変数を解決するため、import より先に通知タップ先を固定する
+// （既定値はマシンの LAN IP になるのでテストで固定できない）
+process.env.APP_BASE_URL = 'http://192.168.0.10:3010';
+const { ChangedetectionClient } = await import('../changedetection.js');
+
+const CLICK = 'click=http%3A%2F%2F192.168.0.10%3A3010%2F%3Fwatch%3D{{watch_uuid}}';
+
 describe('ChangedetectionClient', () => {
-  let client: ChangedetectionClient;
+  let client: InstanceType<typeof ChangedetectionClient>;
   const mockAxiosInstance = {
     get: vi.fn(),
     post: vi.fn(),
@@ -63,7 +69,7 @@ describe('ChangedetectionClient', () => {
       data: {
         url: 'https://example.com',
         title: 'My Watch',
-        fetch_backend: 'html_playwright',
+        fetch_backend: 'html_webdriver',
         time_between_check: { minutes: 30 },
       },
     });
@@ -71,24 +77,48 @@ describe('ChangedetectionClient', () => {
     const created = await client.createWatch({
       url: 'https://example.com',
       title: 'My Watch',
-      fetchBackend: 'html_playwright',
+      fetchBackend: 'html_webdriver',
       checkIntervalMinutes: 30,
       notificationTopic: 'alerts',
       includeFilters: ['.main-content'],
       subtractedFilters: ['.footer'],
-    });
+    }, 'dryeyes-alice-aaaaaa');
 
     expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/v1/watch', expect.objectContaining({
       url: 'https://example.com',
       title: 'My Watch',
-      fetch_backend: 'html_playwright',
-      notification_urls: ['http://localhost:8085/alerts'],
+      fetch_backend: 'html_webdriver',
+      notification_urls: [`ntfy://host.docker.internal:8085/dryeyes-alice-aaaaaa-alerts?${CLICK}`],
       time_between_check: { minutes: 30 },
-      include_filters: '.main-content',
-      subtracted_filters: '.footer',
+      include_filters: ['.main-content'],
+      subtracted_filters: ['.footer'],
     }));
 
     expect(created.id).toBe('new-uuid');
+  });
+
+  it('should add the click url to existing watches without touching their topic', async () => {
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({ data: { 'uuid-1': {}, 'uuid-2': {} } })
+      .mockResolvedValueOnce({
+        data: { notification_urls: ['ntfy://host.docker.internal:8085/topic-a'] },
+      })
+      // 既に同じ click が入っている監視は更新しない
+      .mockResolvedValueOnce({
+        data: {
+          notification_urls: [`ntfy://host.docker.internal:8085/topic-b?${CLICK}`],
+        },
+      });
+
+    const updated = await client.refreshNotificationClickUrls(
+      'http://192.168.0.10:3010/?watch={{watch_uuid}}'
+    );
+
+    expect(updated).toBe(1);
+    expect(mockAxiosInstance.put).toHaveBeenCalledTimes(1);
+    expect(mockAxiosInstance.put).toHaveBeenCalledWith('/api/v1/watch/uuid-1', {
+      notification_urls: [`ntfy://host.docker.internal:8085/topic-a?${CLICK}`],
+    });
   });
 
   it('should fetch watch history and sort chronologically descending', async () => {
@@ -108,4 +138,5 @@ describe('ChangedetectionClient', () => {
       { timestamp: 1699999000, snapshotId: 'snap-0' },
     ]);
   });
+
 });

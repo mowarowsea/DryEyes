@@ -5,3 +5,6 @@ build/
 .env.local
 .DS_Store
 *.log
+
+# ユーザー・セッション・監視の所有者情報（ローカル運用の実データ）
+backend/data/

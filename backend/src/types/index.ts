@@ -1,4 +1,6 @@
-export type FetchBackend = 'html_requests' | 'html_webdriver' | 'html_playwright';
+// changedetection.io が受け付ける値のみ。docker-compose で PLAYWRIGHT_DRIVER_URL を
+// 指定しているため、html_webdriver が Playwright (sockpuppetbrowser) 経由になる。
+export type FetchBackend = 'system' | 'html_requests' | 'html_webdriver';
 
 export interface WatchModel {
   id: string; // uuid
@@ -15,6 +17,9 @@ export interface WatchModel {
   subtractedFilters: string[]; // ignore selectors
   notificationTopic: string;
   tag?: string;
+  // 以下は DryEyes 側で付与する情報（changedetection.io は所有者や既読を持たない）
+  hasUnviewed?: boolean; // 未読の変更があるか
+  lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
 }
 
 export interface CreateWatchDto {
@@ -43,4 +48,81 @@ export interface UpdateWatchDto {
 export interface WatchHistoryItem {
   timestamp: number;
   snapshotId: string;
+}
+
+// ---------------------------------------------------------------------------
+// 認証まわり（ローカル運用前提の簡易ユーザー管理）
+// ---------------------------------------------------------------------------
+
+export interface UserRecord {
+  id: string;
+  username: string;
+  passwordHash: string; // scrypt$<salt>$<hash>
+  ntfyTopic: string; // このユーザー専用の ntfy トピック
+  createdAt: string;
+}
+
+export interface SessionRecord {
+  token: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+// クライアントへ返す表現（passwordHash は絶対に含めない）
+export interface PublicUser {
+  id: string;
+  username: string;
+  ntfyTopic: string;
+  createdAt: string;
+}
+
+export interface AuthStoreData {
+  users: UserRecord[];
+  sessions: SessionRecord[];
+}
+
+export interface OwnershipStoreData {
+  owners: Record<string, string>; // watchId -> userId
+}
+
+// ---------------------------------------------------------------------------
+// 差分表示（前回閲覧時点 → 最新スナップショット）
+// ---------------------------------------------------------------------------
+
+// gap は「変更なしの行を N 行省略した」ことを示すマーカー
+export type DiffLineType = 'added' | 'removed' | 'context' | 'gap';
+
+export interface DiffLine {
+  type: DiffLineType;
+  text: string;
+  count?: number; // gap のときだけ、省略した行数
+}
+
+export interface DiffResult {
+  lines: DiffLine[];
+  added: number;
+  removed: number;
+  truncated: boolean; // 行数上限で打ち切ったか
+}
+
+export interface WatchDiffResponse extends DiffResult {
+  watchId: string;
+  from: number | null; // 比較元スナップショットの時刻 (unix秒)。前回閲覧時点。
+  to: number | null; // 比較先スナップショットの時刻 (unix秒)。最新。
+  hasUnviewed: boolean; // まだ確認していない変更があるか
+  lastViewedAt: string | null; // 最後に既読にした日時 (ISO8601)
+  snapshotCount: number;
+  // 比較対象が無い（初回スナップショットのみ）ときに現在の内容を数行だけ返す
+  currentPreview?: string[];
+}
+
+// ユーザーごと・監視ごとの既読状態
+export interface WatchViewState {
+  snapshotTimestamp: number; // 既読にしたスナップショットの時刻 (unix秒)
+  viewedAt: string; // ISO8601
+}
+
+export interface ViewStateStoreData {
+  views: Record<string, WatchViewState>; // `${userId}:${watchId}`
 }

@@ -18,7 +18,7 @@ DryEyes は、指定したWebページを定期的に監視し、**ユーザー�
 - **一覧表示**: 監視中の全Webサイトをカード形式で一覧表示。
 - **ステータス管理**:
   - `正常 (OK)`: 監視中・直近の取得成功。
-  - `更新検知 (Changed)`: 変更が検知された状態。
+  - `未読の変更 (Unviewed)`: 変更が検知され、まだ本人が差分を確認していない状態。
   - `エラー (Error)`: サイトアクセス失敗・タイムアウト等（エラー原因を表示）。
   - `停止中 (Paused)`: 一時停止中。
 - **新規登録（3ステップ・ウィザードフロー）**:
@@ -33,8 +33,20 @@ DryEyes は、指定したWebページを定期的に監視し、**ユーザー�
     - **チェック間隔**: デフォルトで **1時間**（5分〜24時間プリセット）。
     - **抽出文字列プレビュー**: 選択要素の初期テキスト（類似要素の場合は **全件スクロールリスト** で確認・保持）。
     - **特定要素の監視・除外設定（アコーディオン）**: デフォルトで閉じた状態で配置（必要な場合のみ開いて編集）。
-    - **ntfy 通知トピック**: ユーザー設定不要（表示名を自動で通知トピック名として適用）。
+    - **ntfy 通知トピック**: ユーザー設定不要（ログイン中ユーザー専用トピックへ自動で送信）。
+      詳細設定で監視ごとに分けることもできるが、その場合も `<ユーザートピック>-<スラグ>` に
+      スコープされるため、別ユーザーへ通知が漏れることはない。
+      ntfy が許可する文字は `[-_A-Za-z0-9]` のみのため入力値はスラグ化され、
+      英字が残らない場合（日本語のみの指定等）はハッシュにフォールバックする。
     - 「監視を登録する（OK）」ボタンで登録完了。
+- **変更点の確認（カードタップ）**:
+  - 監視カードをタップすると「**前回そのユーザーが確認した時点から、最新のチェックまで**」の
+    差分を行単位で表示する（追加=緑 / 削除=赤）。変更から離れた行はまとめて省略表示する。
+  - 差分を確認したうえで「サイトを開く」から監視対象ページへ移動でき、移動と同時に既読になる。
+    移動せずに「既読にする」だけで閉じることもできる。
+  - 既読は**明示的な操作でのみ**記録する。モーダルを開いただけでは既読にならないため、
+    誤って閉じても差分は残る。
+  - 既読状態はユーザーごとに保持されるため、同じ監視を別ユーザーが見ても互いに影響しない。
 - **クイック操作**:
   - 即時チェックトリガー（手動再監視）
   - 一時停止 / 再開トグル
@@ -45,16 +57,75 @@ DryEyes は、指定したWebページを定期的に監視し、**ユーザー�
 - **エンジン連携**: `changedetection.io` の差分検出エンジンを利用。
 - **通知配信**: `ntfy` サーバー（デフォルト: `http://localhost:8085`）を経由して Android / iOS の ntfy アプリへ即時プッシュ通知。
 - **誤検知防止**: ページの取得失敗（HTTPエラー、タイムアウト）を「変更」として誤通知しない。
+- **通知タップからの遷移**: 通知には ntfy の `click`（= `<APP_BASE_URL>/?watch=<監視UUID>`）を付ける。
+  スマホで通知をタップすると DryEyes が開き、その監視の差分が自動で表示される。
+  - 通知 URL は `ntfy://<host>/<topic>?click=<URLエンコードした遷移先>` の形で登録する。
+    `changedetection.io` は通知 URL 内の Jinja トークンも展開するため、監視 UUID は
+    `{{watch_uuid}}` のまま埋め込む（波括弧をエンコードすると展開されない）。
+  - 遷移先はスマホから到達できる必要があるため `localhost` は使えない。既定は BFF が検出した
+    LAN の IPv4（`http://<LAN IP>:3010`）で、`APP_BASE_URL` で上書きできる（Tailscale など外出先から使う場合）。
+  - BFF は起動時に既存監視の通知 URL の `click` を現在の値へ揃える（トピックや他の設定は変更しない）。
 
-### 2.3 変更履歴 (History)
+### 2.3 変更履歴 (History) と差分
 - スナップショットのタイムライン表示。
 - 過去の変更日時およびスナップショットIDの追跡。
+- **差分の基準**: 比較元は「そのユーザーが既読にした時点以前で最も新しいスナップショット」。
+  未読の変更が複数回ぶんたまっていても、まとめて 1 つの差分として提示する。
+  一度も確認していない / すでに全て既読の場合は、直前のスナップショットとの差分を表示する。
+- **差分の計算**: BFF がスナップショット本文を取得し、行単位の最長共通部分列 (LCS) で比較する。
+  空行は比較対象から除外する。スナップショットが大きすぎて LCS の表を張れない場合は
+  「相手側に無い行」を拾う近似差分に切り替える。出力は変更の前後2行だけを残して省略し、
+  上限行数を超えた場合は打ち切って `truncated` を立てる。
 
 ---
 
 ## 3. BFF API 仕様書
 
 DryEyes BFF (`http://localhost:3001`) のエンドポイント一覧。
+
+`/api/watches/*` は **ログイン必須**。`Authorization: Bearer <token>` ヘッダを付与する。
+トークンが無効・期限切れの場合は `401` を返し、フロントは保持中のトークンを破棄してログイン画面へ戻る。
+`/api/health`、`/api/auth/status`、`/api/proxy/*` は認証不要（要素ピッカーの iframe は
+ヘッダを付与できないため、ページ取得プロキシは公開のまま）。
+
+### 3.0 認証
+
+ローカル運用前提の簡易認証。パスワードは `node:crypto` の scrypt でハッシュ化して保存し、
+ユーザー・セッション・監視の所有者は `backend/data/` 配下の JSON ファイルに永続化する。
+
+| メソッド | パス | 概要 |
+| --- | --- | --- |
+| `GET` | `/api/auth/status` | `{ "hasUsers": boolean }`。初回起動（未登録）かどうかの判定に使う |
+| `POST` | `/api/auth/register` | ユーザー登録。成功時に自動ログインし `201` を返す |
+| `POST` | `/api/auth/login` | ログイン |
+| `GET` | `/api/auth/me` | 保存済みトークンからユーザーと ntfy 情報を復元 |
+| `POST` | `/api/auth/logout` | セッション失効 |
+
+- **register / login のレスポンス**:
+  ```json
+  {
+    "token": "…64桁のhex…",
+    "expiresAt": "2026-11-28T00:00:00.000Z",
+    "user": {
+      "id": "uuid",
+      "username": "mowa",
+      "ntfyTopic": "dryeyes-mowa-1beb8d",
+      "createdAt": "2026-08-30T10:00:00.000Z"
+    }
+  }
+  ```
+  フロントはこの `token` を `localStorage` (`dryeyes.token`) に保存し、次回アクセス時は
+  `GET /api/auth/me` で自動的に前回のユーザーへ再ログインする。
+
+- **ユーザーごとの通知分離**: 登録時に `dryeyes-<ユーザー名スラグ>-<ID由来ハッシュ>` 形式の
+  専用 ntfy トピックを発行する。監視作成・更新時の通知先はサーバー側で必ずこのトピック配下に
+  スコープされ、クライアントから他ユーザーのトピックを指定することはできない。
+
+- **監視の所有者**: 監視は作成したユーザーに紐づき、一覧には自分の監視のみが返る。
+  他ユーザーの監視への操作は ID の存在を漏らさないよう一律 `404` を返す。
+
+- **既存監視の引き継ぎ**: ログイン機能の導入前に作成された監視は所有者を持たないため、
+  **最初に登録したユーザー**がまとめて引き継ぎ、通知先もそのユーザーのトピックへ付け替える。
 
 ### 3.1 ヘルスチェック
 `GET /api/health`
@@ -93,7 +164,9 @@ DryEyes BFF (`http://localhost:3001`) のエンドポイント一覧。
     "title": "新商品在庫",
     "fetchBackend": "html_requests",
     "checkIntervalMinutes": 10,
-    "notificationTopic": "dryeyes",
+    "notificationTopic": "在庫",       // 省略可。省略時はログインユーザー専用トピックへ通知。
+                                      // 指定時も <ユーザートピック>-<スラグ> にスコープされ、
+                                      // changedetection.io へは Apprise 形式 (ntfy://host/topic) で登録される
     "includeFilters": [".price", "#stock"],
     "subtractedFilters": [".ad-banner"]
   }
@@ -120,18 +193,53 @@ DryEyes BFF (`http://localhost:3001`) のエンドポイント一覧。
 `GET /api/watches/:id/history`
 - **レスポンス**: `WatchHistoryItem[]` (新しい順)
 
+### 3.9 差分取得
+`GET /api/watches/:id/diff`
+- **概要**: ログインユーザーが最後に確認した時点から、最新スナップショットまでの差分。
+- **レスポンス (`WatchDiff`)**:
+  ```json
+  {
+    "watchId": "uuid",
+    "from": 1788090126,          // 比較元スナップショットの時刻 (unix秒)。前回確認時点。
+    "to": 1788090165,            // 比較先スナップショットの時刻 (unix秒)。最新。
+    "lines": [
+      { "type": "added",   "text": "第112話" },
+      { "type": "context", "text": "第111話" },
+      { "type": "gap",     "text": "", "count": 36 },
+      { "type": "removed", "text": "第001話" }
+    ],
+    "added": 1,
+    "removed": 1,
+    "truncated": false,          // 行数上限で打ち切ったか
+    "hasUnviewed": true,         // まだ確認していない変更があるか
+    "lastViewedAt": "2026-08-30T11:41:34.644Z",
+    "snapshotCount": 5
+  }
+  ```
+  - `gap` は「変更なしの行を `count` 行省略した」ことを示すマーカー。
+  - スナップショットが 1 件しか無い場合は `from: null` / `lines: []` となり、
+    代わりに現在の内容が `currentPreview: string[]` として返る。
+
+### 3.10 既読にする
+`POST /api/watches/:id/viewed`
+- **概要**: 最新スナップショットまでを確認済みとして記録する。以降 `hasUnviewed` は `false` になる。
+- **レスポンス**:
+  ```json
+  { "success": true, "snapshotTimestamp": 1788090165, "viewedAt": "2026-08-30T11:41:34.644Z" }
+  ```
+
 ---
 
 ## 4. データモデル定義
 
 ```typescript
-export type FetchBackend = 'html_requests' | 'html_webdriver' | 'html_playwright';
+export type FetchBackend = 'system' | 'html_requests' | 'html_webdriver';
 
 export interface WatchModel {
   id: string;                    // UUID
   url: string;                   // 監視先URL
   title: string;                 // 表示名
-  fetchBackend: FetchBackend;    // 通常 (html_requests) または ブラウザ (html_playwright)
+  fetchBackend: FetchBackend;    // 通常 (html_requests) または ブラウザ (html_webdriver = Playwright 経由)
   checkIntervalMinutes: number;  // 監視頻度 (分)
   paused: boolean;               // 一時停止フラグ
   lastChecked: number | null;    // 最終チェック時刻 (UNIX秒)
@@ -140,7 +248,44 @@ export interface WatchModel {
   lastError: string | null;      // エラーメッセージ
   includeFilters: string[];      // 監視対象セレクタ一覧
   subtractedFilters: string[];   // 除外セレクタ一覧
-  notificationTopic: string;     // ntfy トピック名
+  notificationTopic: string;     // ntfy トピック名（所有ユーザーのトピック配下）
   tag?: string;                  // タグ/カテゴリ
+  // 以下は BFF が付与する DryEyes 側の情報（changedetection.io は所有者も既読も持たない）
+  hasUnviewed?: boolean;         // まだ確認していない変更があるか
+  lastViewedAt?: string | null;  // 最後に差分を確認した日時 (ISO8601)
+}
+
+// 差分表示
+export type DiffLineType = 'added' | 'removed' | 'context' | 'gap';
+
+export interface DiffLine {
+  type: DiffLineType;
+  text: string;
+  count?: number;                // gap のときだけ、省略した行数
+}
+
+// 認証（ローカル運用前提の簡易ユーザー管理）
+export interface AuthUser {
+  id: string;                    // UUID
+  username: string;              // ログイン名（大文字小文字を区別せず一意）
+  ntfyTopic: string;             // このユーザー専用の ntfy トピック
+  createdAt: string;             // ISO8601
+}
+
+export interface AuthSession {
+  token: string;                 // ブラウザの localStorage に保存する 64桁hex
+  expiresAt: string;             // ISO8601 (既定 90 日 / SESSION_TTL_DAYS)
+  user: AuthUser;
 }
 ```
+
+> `changedetection.io` の一覧 API (`GET /api/v1/watch`) は `notification_urls` を返さないため、
+> 一覧取得時の `notificationTopic` は空文字になる。個別取得 (`GET /api/watches/:id`) では
+> 実際のトピック名が入る。
+
+> 監視の再チェック要求は `GET /api/v1/watch/<uuid>?recheck=1` で行う。
+> `/api/v1/watch/<uuid>/check` のような専用エンドポイントは 0.55 系には存在せず 404 になる。
+
+> 通知タップ先 (`?watch=<uuid>`) を開いたフロントエンドは、監視 ID を読み取ったあとに
+> クエリを取り除く（`history.replaceState`）。リロードや戻る操作で同じ差分が開き直すのを防ぐため。
+> ログイン済みでない場合はログイン画面を挟み、ログイン後にその差分を開く。

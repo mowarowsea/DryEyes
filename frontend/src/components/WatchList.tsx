@@ -8,6 +8,7 @@ interface WatchListProps {
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onViewHistory: (watch: WatchModel) => void;
+  onOpenDiff: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
   onOpenCreateModal: () => void;
 }
@@ -19,6 +20,7 @@ export const WatchList: React.FC<WatchListProps> = ({
   onTriggerCheck,
   onTogglePause,
   onViewHistory,
+  onOpenDiff,
   onDelete,
   onOpenCreateModal,
 }) => {
@@ -34,7 +36,10 @@ export const WatchList: React.FC<WatchListProps> = ({
       if (!matchSearch) return false;
 
       if (activeTab === 'changed') {
-        return w.lastChanged && w.lastChecked && w.lastChanged >= w.lastChecked - 60;
+        // BFF が付与する未読フラグを優先し、無い場合のみ直近の変更検知で判定する
+        return (
+          w.hasUnviewed ?? Boolean(w.lastChanged && w.lastChecked && w.lastChanged >= w.lastChecked - 60)
+        );
       }
       if (activeTab === 'error') {
         return w.hasError;
@@ -81,7 +86,7 @@ export const WatchList: React.FC<WatchListProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            更新検知
+            未読
           </button>
           <button
             onClick={() => setActiveTab('error')}
@@ -138,6 +143,7 @@ export const WatchList: React.FC<WatchListProps> = ({
               onTriggerCheck={onTriggerCheck}
               onTogglePause={onTogglePause}
               onViewHistory={onViewHistory}
+              onOpenDiff={onOpenDiff}
               onDelete={onDelete}
             />
           ))}

@@ -8,6 +8,7 @@ import {
   CheckCircle,
   Clock,
   Pause,
+  ChevronRight,
 } from 'lucide-react';
 import { WatchModel } from '../types';
 
@@ -16,6 +17,7 @@ interface WatchCardProps {
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onViewHistory: (watch: WatchModel) => void;
+  onOpenDiff: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -24,6 +26,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onTriggerCheck,
   onTogglePause,
   onViewHistory,
+  onOpenDiff,
   onDelete,
 }) => {
   const [checking, setChecking] = useState(false);
@@ -62,6 +65,12 @@ export const WatchCard: React.FC<WatchCardProps> = ({
     return date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
+  // 未読判定は BFF が返す hasUnviewed を使う。
+  // 古いレスポンス等で欠けている場合のみ、直近の変更検知にフォールバックする。
+  const hasUnviewed =
+    watch.hasUnviewed ??
+    Boolean(watch.lastChanged && watch.lastChecked && watch.lastChanged >= watch.lastChecked - 60);
+
   // ステータス判定
   let statusBadge = (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
@@ -84,17 +93,34 @@ export const WatchCard: React.FC<WatchCardProps> = ({
         エラー
       </span>
     );
-  } else if (watch.lastChanged && watch.lastChecked && watch.lastChanged >= watch.lastChecked - 60) {
+  } else if (hasUnviewed) {
     statusBadge = (
       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200/60">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse" />
-        更新検知
+        未読の変更
       </span>
     );
   }
 
+  // カード本体のタップで差分モーダルを開く。中のリンクやボタンには伝播させない。
+  const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
+
   return (
-    <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`${watch.title} の変更点を見る`}
+      onClick={() => onOpenDiff(watch)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpenDiff(watch);
+        }
+      }}
+      className={`text-left bg-white border rounded-xl p-4 shadow-sm hover:shadow-md hover:border-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 active:scale-[0.995] cursor-pointer transition ${
+        hasUnviewed && !watch.paused ? 'border-amber-200' : 'border-slate-200/80'
+      }`}
+    >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center space-x-2 mb-1">
@@ -113,12 +139,16 @@ export const WatchCard: React.FC<WatchCardProps> = ({
             href={watch.url}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={stopPropagation}
             className="inline-flex items-center text-xs text-slate-500 hover:text-indigo-600 truncate max-w-full mt-1 group"
           >
             <span className="truncate">{watch.url}</span>
             <ExternalLink className="w-3 h-3 ml-1 flex-shrink-0 opacity-60 group-hover:opacity-100" />
           </a>
         </div>
+
+        {/* タップで差分が見えることを示す */}
+        <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0 mt-1" />
       </div>
 
       {watch.lastError && (
@@ -128,18 +158,21 @@ export const WatchCard: React.FC<WatchCardProps> = ({
       )}
 
       <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-        <div className="flex flex-col">
+        <div className="flex flex-col min-w-0">
           <span>
             最終確認: <strong className="text-slate-700 font-medium">{formatTime(watch.lastChecked)}</strong>
           </span>
-          {watch.lastChanged && (
+          {watch.lastChanged ? (
             <span className="text-[11px] text-slate-400">
               最終変更: {formatTime(watch.lastChanged)}
             </span>
-          )}
+          ) : null}
+          <span className="text-[11px] text-indigo-500 font-medium mt-0.5">
+            タップして変更点を見る
+          </span>
         </div>
 
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center space-x-1" onClick={stopPropagation}>
           <button
             onClick={handleCheck}
             disabled={checking || watch.paused}

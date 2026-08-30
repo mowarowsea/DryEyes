@@ -13,6 +13,7 @@ import {
   MousePointerClick,
   Sparkles,
   Layers,
+  Bell,
 } from 'lucide-react';
 import { CreateWatchDto } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
@@ -22,7 +23,8 @@ interface CreateWatchModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: CreateWatchDto) => Promise<void>;
-  defaultTopic: string;
+  /** ログイン中ユーザー専用の ntfy トピック。既定ではここへ通知が飛ぶ。 */
+  userTopic: string;
 }
 
 const INTERVAL_PRESETS = [
@@ -38,7 +40,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
-  defaultTopic,
+  userTopic,
 }) => {
   // ステップ管理: 1 = URL入力, 2 = ピッカー (モーダル), 3 = 登録オプション
   const [step, setStep] = useState<1 | 3>(1);
@@ -51,6 +53,8 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   const [extractedTexts, setExtractedTexts] = useState<string[]>([]);
   const [includeFilters, setIncludeFilters] = useState('');
   const [subtractedFilters, setSubtractedFilters] = useState('');
+  // 空なら自分専用トピックへまとめて通知する（通常はこれでよい）
+  const [notificationTopic, setNotificationTopic] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false); // デフォルトでアコーディオンを閉じる
 
   const [loadingInfo, setLoadingInfo] = useState(false);
@@ -69,6 +73,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     setExtractedTexts([]);
     setIncludeFilters('');
     setSubtractedFilters('');
+    setNotificationTopic('');
     setShowAdvanced(false);
     setError(null);
     onClose();
@@ -132,9 +137,11 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
       await onSubmit({
         url: url.trim(),
         title: chosenTitle,
-        fetchBackend: 'html_playwright',
+        fetchBackend: 'html_webdriver',
         checkIntervalMinutes: intervalMinutes,
-        notificationTopic: chosenTitle || defaultTopic, // 表示名をそのまま通知トピックとして使用
+        // 未指定なら BFF 側でログインユーザー専用トピックが使われる。
+        // 指定した場合もそのユーザーのトピック配下に閉じ込められる。
+        notificationTopic: notificationTopic.trim() || undefined,
         includeFilters: includeFilters.split('\n').map((s) => s.trim()).filter(Boolean),
         subtractedFilters: subtractedFilters.split('\n').map((s) => s.trim()).filter(Boolean),
       });
@@ -248,6 +255,20 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
               />
             </div>
 
+            {/* 通知先（ユーザー専用トピック） */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <p className="text-[11px] font-semibold text-slate-700 flex items-center mb-1">
+                <Bell className="w-3.5 h-3.5 mr-1 text-indigo-500" />
+                通知先
+              </p>
+              <code className="block text-[11px] font-mono text-slate-600 truncate" title={notificationTopic.trim() || userTopic}>
+                {notificationTopic.trim() ? `${userTopic}-${notificationTopic.trim()}` : userTopic}
+              </code>
+              <p className="text-[10px] text-slate-400 mt-1">
+                あなた専用のトピックです。他のユーザーには届きません。
+              </p>
+            </div>
+
             {/* 監視対象から抽出した文字列（初期バージョン・全件表示） */}
             {extractedTexts.length > 0 && (
               <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl space-y-1.5">
@@ -353,6 +374,22 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
                       onChange={(e) => setSubtractedFilters(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      この監視だけ別トピックに分ける（任意）
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="空欄なら自分専用トピックにまとめて通知"
+                      value={notificationTopic}
+                      onChange={(e) => setNotificationTopic(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      指定しても「{userTopic}-」の配下になるため、他のユーザーの通知とは混ざりません。
+                    </p>
                   </div>
                 </div>
               )}

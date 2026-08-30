@@ -1,3 +1,7 @@
+# プロジェクト名を明示（未指定だとフォルダ名から決まり、リネーム時に
+# 別プロジェクト扱いでボリュームが作り直されてしまうため）
+name: dryeyes
+
 services:
   changedetection:
     image: ghcr.io/dgtlmoon/changedetection.io:latest
@@ -11,6 +15,9 @@ services:
       - HIDE_REFERER=true
     ports:
       - "5000:5000"
+    # ntfy は別ネットワークのコンテナなので、ホスト経由で到達できるようにする
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     depends_on:
       sockpuppetbrowser:
