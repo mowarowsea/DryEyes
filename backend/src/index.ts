@@ -3,6 +3,7 @@ import cors from 'cors';
 import { config } from './config.js';
 import { healthRouter } from './routes/health.js';
 import { watchesRouter } from './routes/watches.js';
+import { proxyRouter } from './routes/proxy.js';
 
 const app = express();
 
@@ -12,6 +13,7 @@ app.use(express.json());
 // API Routes
 app.use('/api/health', healthRouter);
 app.use('/api/watches', watchesRouter);
+app.use('/api/proxy', proxyRouter);
 
 app.listen(config.port, () => {
   console.log(`[DryEyes BFF] Server is running on http://localhost:${config.port}`);

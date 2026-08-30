@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, ChevronDown, ChevronUp, Clock, Target, ShieldAlert, Bell } from 'lucide-react';
+import { X, ChevronDown, ChevronUp, Clock, Target, ShieldAlert, Bell, MousePointerClick } from 'lucide-react';
 import { CreateWatchDto } from '../types';
+import { VisualElementPickerModal } from './VisualElementPickerModal';
 
 interface CreateWatchModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [includeFilters, setIncludeFilters] = useState('');
   const [subtractedFilters, setSubtractedFilters] = useState('');
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,9 +96,20 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
 
           {/* URL */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              監視対象のURL <span className="text-rose-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                監視対象のURL <span className="text-rose-500">*</span>
+              </label>
+              <button
+                type="button"
+                disabled={!url}
+                onClick={() => setIsPickerOpen(true)}
+                className="inline-flex items-center text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-40 transition"
+              >
+                <MousePointerClick className="w-3.5 h-3.5 mr-1" />
+                画面から要素をタップ選択
+              </button>
+            </div>
             <input
               type="url"
               required
@@ -234,6 +247,21 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* ビジュアル要素ピッカーモーダル */}
+      <VisualElementPickerModal
+        isOpen={isPickerOpen}
+        targetUrl={url}
+        onClose={() => setIsPickerOpen(false)}
+        onSelectXPath={(xpath, isExclude) => {
+          setShowAdvanced(true);
+          if (isExclude) {
+            setSubtractedFilters((prev) => (prev ? `${prev}\n${xpath}` : xpath));
+          } else {
+            setIncludeFilters((prev) => (prev ? `${prev}\n${xpath}` : xpath));
+          }
+        }}
+      />
     </div>
   );
 };

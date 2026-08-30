@@ -1,0 +1,129 @@
+import axios from 'axios';
+
+// 注入する Element Inspector スクリプト
+const INSPECTOR_SCRIPT = `
+<script>
+(function() {
+  let highlightedEl = null;
+
+  // ハイライト用のオーバーレイスタイル
+  const style = document.createElement('style');
+  style.innerHTML = \`
+    .dryeyes-inspect-hover {
+      outline: 2px solid #4f46e5 !important;
+      background-color: rgba(79, 70, 229, 0.15) !important;
+      cursor: crosshair !important;
+    }
+  \`;
+  document.head.appendChild(style);
+
+  // XPath 計算ヘルパー
+  function getXPath(element) {
+    if (element.id !== '') {
+      return '//*[@id="' + element.id + '"]';
+    }
+    if (element === document.body) {
+      return '/html/body';
+    }
+
+    let ix = 0;
+    const siblings = element.parentNode ? element.parentNode.childNodes : [];
+    for (let i = 0; i < siblings.length; i++) {
+      const sibling = siblings[i];
+      if (sibling === element) {
+        const parentPath = element.parentNode ? getXPath(element.parentNode) : '';
+        return parentPath + '/' + element.tagName.toLowerCase() + '[' + (ix + 1) + ']';
+      }
+      if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
+        ix++;
+      }
+    }
+    return '';
+  }
+
+  // CSS Selector 計算ヘルパー
+  function getCssSelector(el) {
+    if (el.id) return '#' + el.id;
+    let path = [];
+    while (el && el.nodeType === Node.ELEMENT_NODE) {
+      let selector = el.nodeName.toLowerCase();
+      if (el.className && typeof el.className === 'string') {
+        const classes = el.className.trim().split(/\\s+/).filter(c => !c.startsWith('dryeyes-')).join('.');
+        if (classes) selector += '.' + classes;
+      }
+      path.unshift(selector);
+      if (el.id) break;
+      el = el.parentNode;
+    }
+    return path.join(' > ');
+  }
+
+  // マウスオーバー
+  document.addEventListener('mouseover', function(e) {
+    if (highlightedEl) {
+      highlightedEl.classList.remove('dryeyes-inspect-hover');
+    }
+    highlightedEl = e.target;
+    if (highlightedEl) {
+      highlightedEl.classList.add('dryeyes-inspect-hover');
+    }
+  }, true);
+
+  // クリック/タップ
+  document.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const target = e.target;
+    const xpath = getXPath(target);
+    const selector = getCssSelector(target);
+    const text = (target.innerText || target.textContent || '').trim().substring(0, 80);
+
+    window.parent.postMessage({
+      type: 'DRYEYES_ELEMENT_SELECTED',
+      payload: {
+        xpath,
+        selector,
+        text,
+        tagName: target.tagName.toLowerCase()
+      }
+    }, '*');
+  }, true);
+})();
+</script>
+`;
+
+export async function fetchProxyPage(targetUrl: string): Promise<string> {
+  const urlObj = new URL(targetUrl);
+  const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+
+  const response = await axios.get(targetUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    },
+    responseType: 'text',
+    timeout: 12000,
+  });
+
+  let html = response.data;
+
+  // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる
+  const baseTag = `<base href="${targetUrl}">`;
+  if (html.includes('<head>')) {
+    html = html.replace('<head>', `<head>${baseTag}`);
+  } else if (html.includes('<html>')) {
+    html = html.replace('<html>', `<html><head>${baseTag}</head>`);
+  } else {
+    html = `${baseTag}${html}`;
+  }
+
+  // 末尾に Inspector スクリプトを挿入
+  if (html.includes('</body>')) {
+    html = html.replace('</body>', `${INSPECTOR_SCRIPT}</body>`);
+  } else {
+    html += INSPECTOR_SCRIPT;
+  }
+
+  return html;
+}
