@@ -32,9 +32,7 @@ export function createUser(username: string, password: string): UserRecord {
   if (name.length < 2 || name.length > 32) {
     throw new AuthError('ユーザー名は2〜32文字で入力してください');
   }
-  if (!password || password.length < 4) {
-    throw new AuthError('パスワードは4文字以上で入力してください');
-  }
+  const pass = password || '';
   if (findByUsername(name)) {
     throw new AuthError('そのユーザー名は既に使われています', 409);
   }
@@ -43,7 +41,7 @@ export function createUser(username: string, password: string): UserRecord {
   const user: UserRecord = {
     id,
     username: name,
-    passwordHash: hashPassword(password),
+    passwordHash: hashPassword(pass),
     // ユーザー固有の ntfy トピック。この配下にしか通知が飛ばないので他ユーザーと混ざらない。
     ntfyTopic: buildUserTopic(name, id, config.ntfy.defaultTopic),
     createdAt: new Date().toISOString(),

@@ -47,9 +47,9 @@ describe('users', () => {
     expect(() => createUser('ALICE', 'password')).toThrow('既に使われています');
   });
 
-  it('should validate username and password length', () => {
+  it('should validate username length but not password length', () => {
     expect(() => createUser('a', 'password')).toThrow('ユーザー名は2〜32文字');
-    expect(() => createUser('carol', '123')).toThrow('パスワードは4文字以上');
+    expect(() => createUser('carol', '')).not.toThrow();
   });
 
   it('should reject wrong credentials with the same message for unknown users', () => {
@@ -72,7 +72,7 @@ describe('users', () => {
 
   it('should persist users to disk so a BFF restart keeps them', () => {
     const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, 'auth.json'), 'utf-8'));
-    expect(saved.users.map((u: any) => u.username)).toEqual(['alice', 'bob']);
+    expect(saved.users.map((u: any) => u.username)).toEqual(['alice', 'bob', 'carol']);
     expect(saved.users[0].passwordHash).toMatch(/^scrypt\$/);
   });
 });
