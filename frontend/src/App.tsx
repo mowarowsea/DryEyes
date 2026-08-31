@@ -3,6 +3,7 @@ import { Header } from './components/Header';
 import { WatchList } from './components/WatchList';
 import { CreateWatchModal } from './components/CreateWatchModal';
 import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
+import { CopyWatchModal } from './components/CopyWatchModal';
 import { DiffModal } from './components/DiffModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
@@ -23,6 +24,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editTargetWatch, setEditTargetWatch] = useState<WatchModel | null>(null);
+  const [copyTargetWatch, setCopyTargetWatch] = useState<WatchModel | null>(null);
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
@@ -185,6 +187,11 @@ export default function App() {
     fetchData();
   };
 
+  const handleCopyWatchTo = async (id: string, username: string) => {
+    const result = await api.copyWatchTo(id, username);
+    showToast(`「${result.title}」を ${result.username} 用にコピーしました`);
+  };
+
   // トークン検証中は画面のちらつきを避けるため何も出さない
   if (authState === 'booting') {
     return (
@@ -221,6 +228,7 @@ export default function App() {
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
           onEdit={(w) => setEditTargetWatch(w)}
+          onCopyTo={(w) => setCopyTargetWatch(w)}
           faviconVersions={faviconVersions}
           onDelete={handleDeleteWatch}
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
@@ -241,6 +249,13 @@ export default function App() {
         userTopic={userTopic}
         onClose={() => setEditTargetWatch(null)}
         onSubmit={handleUpdateWatch}
+      />
+
+      <CopyWatchModal
+        watch={copyTargetWatch}
+        isOpen={!!copyTargetWatch}
+        onClose={() => setCopyTargetWatch(null)}
+        onSubmit={handleCopyWatchTo}
       />
 
       <DiffModal

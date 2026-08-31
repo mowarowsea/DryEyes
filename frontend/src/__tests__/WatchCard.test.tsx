@@ -40,6 +40,7 @@ describe('WatchCard', () => {
         onOpenDiff={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onCopyTo={vi.fn()}
         {...handlers}
       />
     );
@@ -131,6 +132,7 @@ describe('WatchCard', () => {
         onOpenDiff={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onCopyTo={vi.fn()}
       />
     );
 
@@ -147,6 +149,16 @@ describe('WatchCard', () => {
     fireEvent.click(screen.getByText('設定を変更'));
 
     expect(handleEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
+  });
+
+  it('opens the copy-to modal from the option menu', () => {
+    const handleCopyTo = vi.fn();
+    renderCard({}, { onCopyTo: handleCopyTo });
+
+    openMenu();
+    fireEvent.click(screen.getByText('別ユーザへコピー'));
+
+    expect(handleCopyTo).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
   });
 
   it('deletes from the option menu after confirmation', () => {

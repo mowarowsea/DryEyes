@@ -53,6 +53,12 @@ export function createUser(username: string, password: string): UserRecord {
   return user;
 }
 
+// 監視のコピー先を指定するときのユーザー名検索。存在有無を返すだけで passwordHash は含めない。
+export function findPublicUserByUsername(username: string): PublicUser | null {
+  const user = findByUsername((username || '').trim());
+  return user ? toPublicUser(user) : null;
+}
+
 export function verifyCredentials(username: string, password: string): UserRecord {
   const user = findByUsername((username || '').trim());
   // ユーザーの存在有無を漏らさないよう、どちらの失敗も同じ文言にする

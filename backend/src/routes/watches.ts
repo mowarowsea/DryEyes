@@ -1,6 +1,7 @@
 import { Response, Router } from 'express';
 import { changedetectionClient } from '../services/changedetection.js';
 import { assignOwner, isOwnedBy, pruneMissing, releaseOwner } from '../services/ownership.js';
+import { findPublicUserByUsername } from '../services/users.js';
 import {
   clearViewStates,
   countUnviewedChanges,
@@ -78,6 +79,45 @@ watchesRouter.post('/', async (req, res) => {
     // changedetection.io が返したバリデーションエラーはそのままクライアントへ伝える
     const status = err.status >= 400 && err.status < 500 ? err.status : 500;
     res.status(status).json({ error: 'Failed to create watch', message: err.message });
+  }
+});
+
+// 別ユーザーへ、同じ設定のコピーを作成する（所有者はコピー先のユーザーになる）
+watchesRouter.post('/:id/copy-to', async (req, res) => {
+  const watchId = req.params.id;
+  if (!ensureOwned(watchId, req.user!.id, res)) return;
+
+  const username = String(req.body?.username || '').trim();
+  if (!username) {
+    return res.status(400).json({ error: 'Invalid target', message: 'コピー先のユーザー名を入力してください' });
+  }
+
+  const target = findPublicUserByUsername(username);
+  if (!target) {
+    return res.status(404).json({ error: 'Not found', message: 'そのユーザー名は見つかりません' });
+  }
+  if (target.id === req.user!.id) {
+    return res.status(400).json({ error: 'Invalid target', message: '自分自身へはコピーできません' });
+  }
+
+  try {
+    const source = await changedetectionClient.getWatch(watchId);
+    const dto: CreateWatchDto = {
+      url: source.url,
+      title: source.title,
+      fetchBackend: source.fetchBackend,
+      checkIntervalMinutes: source.checkIntervalMinutes,
+      includeFilters: source.includeFilters,
+      subtractedFilters: source.subtractedFilters,
+      tag: source.tag,
+      // 通知先は指定しない（コピー先ユーザー専用のトピックへ自動で送られる）
+    };
+    const copy = await changedetectionClient.createWatch(dto, target.ntfyTopic);
+    assignOwner(copy.id, target.id);
+    res.status(201).json({ success: true, title: copy.title, username: target.username });
+  } catch (err: any) {
+    const status = err.status >= 400 && err.status < 500 ? err.status : 500;
+    res.status(status).json({ error: 'Failed to copy watch', message: err.message });
   }
 });
 

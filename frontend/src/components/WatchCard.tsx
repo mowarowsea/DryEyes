@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Copy,
   Globe,
   MoreVertical,
   Pause,
@@ -18,6 +19,7 @@ interface WatchCardProps {
   onOpenDiff: (watch: WatchModel) => void;
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
+  onCopyTo: (watch: WatchModel) => void;
   /** 設定を保存した時刻。変わるとファビコンをブラウザキャッシュから読まずに取り直す。 */
   faviconVersion?: number;
 }
@@ -58,6 +60,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onOpenDiff,
   onEdit,
   onDelete,
+  onCopyTo,
   faviconVersion,
 }) => {
   const [checking, setChecking] = useState(false);
@@ -257,6 +260,17 @@ export const WatchCard: React.FC<WatchCardProps> = ({
               >
                 <Settings2 className="w-3.5 h-3.5 text-slate-400" />
                 設定を変更
+              </button>
+
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onCopyTo(watch);
+                }}
+                className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+              >
+                <Copy className="w-3.5 h-3.5 text-slate-400" />
+                別ユーザへコピー
               </button>
 
               <button

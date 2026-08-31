@@ -165,6 +165,16 @@ export const api = {
     if (!res.ok) throw new Error('Failed to delete watch');
   },
 
+  // 同じ設定のまま、別ユーザーの所有物としてコピーを作成する
+  async copyWatchTo(id: string, username: string): Promise<{ title: string; username: string }> {
+    const res = await request(`/watches/${id}/copy-to`, {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, 'コピーの作成に失敗しました'));
+    return res.json();
+  },
+
   async triggerCheck(id: string): Promise<void> {
     const res = await request(`/watches/${id}/check`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed to trigger check');
