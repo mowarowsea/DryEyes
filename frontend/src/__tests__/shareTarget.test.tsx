@@ -52,7 +52,7 @@ describe('共有シートからの起動', () => {
 
     // 共有された URL が入った状態で、そのまま要素の選択まで進む
     expect(await screen.findByTitle('Page Preview')).toBeInTheDocument();
-    expect(screen.getByText('Step 2/3')).toBeInTheDocument();
+    expect(screen.getByText('Step 2/2')).toBeInTheDocument();
     expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
     // リロードで開き直さないようにクエリは消えている
     expect(window.location.search).toBe('');

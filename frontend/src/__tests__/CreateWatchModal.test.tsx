@@ -27,6 +27,26 @@ const renderModal = (
   return { onClose, onSubmit };
 };
 
+// ピッカー内で要素がタップされた体にする
+const selectElement = (xpath: string, similarCount = 1) => {
+  fireEvent(
+    window,
+    new MessageEvent('message', {
+      data: {
+        type: 'DRYEYES_ELEMENT_SELECTED',
+        payload: {
+          xpath,
+          similarXPath: '',
+          similarCount,
+          selector: '#list',
+          text: '第111話',
+          tagName: 'DIV',
+        },
+      },
+    })
+  );
+};
+
 // URL を入れて「次へ」を押すと要素ピッカーが開く
 const proceedToPicker = async () => {
   fireEvent.change(screen.getByPlaceholderText('https://example.com/comics/123'), {
@@ -40,7 +60,7 @@ describe('CreateWatchModal', () => {
   it('starts at the URL step', () => {
     renderModal();
 
-    expect(screen.getByText('Step 1/3')).toBeInTheDocument();
+    expect(screen.getByText('Step 1/2')).toBeInTheDocument();
     expect(screen.getByText('監視対象URLの入力')).toBeInTheDocument();
   });
 
@@ -95,10 +115,8 @@ describe('CreateWatchModal', () => {
         },
       })
     );
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-
-    await waitFor(() => expect(screen.getByText('Step 3/3')).toBeInTheDocument());
-    // ページの <title> が表示名の初期値になる
+    // 設定は同じ画面に畳んである。ページの <title> が表示名の初期値になる。
+    fireEvent.click(screen.getByRole('button', { name: /オプション/ }));
     expect(screen.getByDisplayValue('ぐらんぶる')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /監視を登録する/ }));
@@ -124,7 +142,7 @@ describe('CreateWatchModal', () => {
 
     // URL 入力も「次へ」も踏まずに要素の選択まで進む
     await waitFor(() => expect(screen.getByTitle('Page Preview')).toBeInTheDocument());
-    expect(screen.getByText('Step 2/3')).toBeInTheDocument();
+    expect(screen.getByText('Step 2/2')).toBeInTheDocument();
     expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
   });
 
@@ -148,26 +166,19 @@ describe('CreateWatchModal', () => {
     expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
   });
 
-  it('registers the whole page when the picker is skipped', async () => {
+  it('watches the whole page when the picker is confirmed without picking anything', async () => {
     vi.spyOn(api, 'getPageInfo').mockResolvedValue({
       title: 'ぐらんぶる',
       url: 'https://example.com/manga',
     });
     const { onSubmit } = renderModal();
 
-    fireEvent.change(screen.getByPlaceholderText('https://example.com/comics/123'), {
-      target: { value: 'https://example.com/manga' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /ページ全体を見張る/ }));
+    await proceedToPicker();
 
-    await waitFor(() => expect(screen.getByText('登録オプションの設定')).toBeInTheDocument());
-    expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue('ぐらんぶる')).toBeInTheDocument();
-
+    // 要素を選ばずに確定するとページ全体が対象になる
     fireEvent.click(screen.getByRole('button', { name: /監視を登録する/ }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
-    // ページ全体が対象なので、絞り込みのフィルタは付かない
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         url: 'https://example.com/manga',
@@ -176,5 +187,24 @@ describe('CreateWatchModal', () => {
         subtractedFilters: [],
       })
     );
+  });
+
+  it('keeps the picker open while excluded elements are added', async () => {
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    const { onSubmit } = renderModal();
+
+    await proceedToPicker();
+    selectElement('//*[@id="ad"]');
+    fireEvent.click(screen.getByRole('button', { name: '除外' }));
+
+    // 続けて選べるよう画面は開いたまま。除外はオプションに溜まる。
+    expect(screen.getByTitle('Page Preview')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /オプション/ }));
+    expect(screen.getByDisplayValue('//*[@id="ad"]')).toBeInTheDocument();
   });
 });

@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { X, MousePointerClick, Check, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import {
+  X,
+  MousePointerClick,
+  Check,
+  AlertCircle,
+  RefreshCw,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  Settings2,
+  ShieldAlert,
+} from 'lucide-react';
 import { useEscapeToClose } from './Modal';
 import { apiUrl } from '../api';
 
@@ -16,9 +27,23 @@ interface SelectedElementData {
 interface VisualElementPickerModalProps {
   isOpen: boolean;
   targetUrl: string;
-  /** 見出しの左に出す小さなラベル。登録ウィザードから開いたときの「Step 2/3」など。 */
+  /** 見出しの左に出す小さなラベル。登録ウィザードから開いたときの「Step 2/2」など。 */
   badge?: string;
+  /** 確定ボタンのラベル。登録ウィザードでは「監視を登録する」になる。 */
+  confirmLabel?: string;
+  /** 要素を選ばずに確定できるか。登録時は「ページ全体を見張る」の意味になる。 */
+  allowEmptySelection?: boolean;
+  /** 確定処理の実行中はボタンを止める */
+  submitting?: boolean;
+  /** 確定に失敗したときのメッセージ */
+  error?: string | null;
+  /** 折りたたんで置く追加設定。登録ウィザードでは表示名やチェック間隔が入る。 */
+  options?: React.ReactNode;
   onClose: () => void;
+  /**
+   * 選択した要素を親へ渡す。閉じるかどうかは親が決める
+   * （除外の追加では開いたまま選び続けたいため）。
+   */
   onSelectXPath: (xpath: string, extractedTexts: string[], isExclude: boolean) => void;
 }
 
@@ -26,6 +51,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   isOpen,
   targetUrl,
   badge,
+  confirmLabel = 'OK',
+  allowEmptySelection = false,
+  submitting = false,
+  error,
+  options,
   onClose,
   onSelectXPath,
 }) => {
@@ -33,6 +63,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const [targetMode, setTargetMode] = useState<'single' | 'similar'>('single');
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showOptions, setShowOptions] = useState(false);
 
   // 登録／設定変更モーダルの上に重なるが、Esc では手前のこのピッカーだけが閉じる
   useEscapeToClose(isOpen, onClose);
@@ -70,16 +101,23 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   };
 
   const handleConfirm = (isExclude: boolean = false) => {
-    if (!selectedElement) return;
+    if (!selectedElement) {
+      // 要素を選ばずに確定できるのは登録時だけ。その場合はページ全体が対象になる。
+      if (!isExclude && allowEmptySelection) onSelectXPath('', [], false);
+      return;
+    }
+
     const isSimilar = targetMode === 'similar';
     const finalXPath = isSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
     const texts = isSimilar && selectedElement.similarTexts && selectedElement.similarTexts.length > 0
       ? selectedElement.similarTexts
       : (selectedElement.text ? [selectedElement.text] : []);
-    if (finalXPath) {
-      onSelectXPath(finalXPath, texts, isExclude);
-      onClose();
-    }
+    if (!finalXPath) return;
+
+    onSelectXPath(finalXPath, texts, isExclude);
+
+    // 除外はいくつも足せるようにしたいので、選択だけ解除して画面は開いたままにする
+    if (isExclude) setSelectedElement(null);
   };
 
   const hasSimilarElements = (selectedElement?.similarCount ?? 0) > 1;
@@ -136,8 +174,15 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
           />
         </div>
 
-        {/* フッター（スマホの親指で押せるよう、上段に対象の切り替え・下段に確定ボタン） */}
+        {/* フッター（スマホの親指で押せるよう、選択の切り替え・設定・確定を縦に積む） */}
         <div className="px-3 py-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex flex-col gap-2 flex-shrink-0">
+          {error && (
+            <div className="p-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 rounded-xl text-xs flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           {/* 類似要素切り替えボタン（要素選択後のみ） */}
           {hasSimilarElements && (
             <button
@@ -165,29 +210,65 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
           )}
 
           {!selectedElement && (
-            <span className="py-1 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center">
+            <span className="py-1 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center text-center">
               <AlertCircle className="w-3.5 h-3.5 mr-1 flex-shrink-0" />
-              見張りたい要素をタップ
+              {allowEmptySelection
+                ? '見張りたい要素をタップ（選ばずに登録するとページ全体）'
+                : '見張りたい要素をタップ'}
             </span>
+          )}
+
+          {/* 登録オプション（表示名・チェック間隔など）。既定では畳んでおく。 */}
+          {options && (
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowOptions(!showOptions)}
+                className="flex items-center justify-between w-full text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 py-1"
+              >
+                <span className="flex items-center">
+                  <Settings2 className="w-3.5 h-3.5 mr-1 text-slate-400 dark:text-slate-500" />
+                  オプション（表示名・チェック間隔・通知先）
+                </span>
+                {showOptions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+
+              {showOptions && (
+                <div className="mt-2 max-h-[45vh] overflow-y-auto p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-xl space-y-3 animate-fadeIn">
+                  {options}
+                </div>
+              )}
+            </div>
           )}
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => handleConfirm(true)}
-              disabled={!selectedElement}
+              disabled={!selectedElement || submitting}
               className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 disabled:opacity-40 transition rounded-xl flex-shrink-0"
             >
               除外
             </button>
             <button
               onClick={() => handleConfirm(false)}
-              disabled={!selectedElement}
+              disabled={(!selectedElement && !allowEmptySelection) || submitting}
               className="flex-1 px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm flex items-center justify-center gap-1.5"
             >
-              <Check className="w-4 h-4" />
-              <span>
-                {targetMode === 'similar' ? `OK（${selectedElement?.similarCount}件）` : 'OK'}
-              </span>
+              {submitting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>登録中...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>
+                    {targetMode === 'similar'
+                      ? `${confirmLabel}（${selectedElement?.similarCount}件）`
+                      : confirmLabel}
+                  </span>
+                </>
+              )}
             </button>
           </div>
         </div>

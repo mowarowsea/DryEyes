@@ -3,6 +3,7 @@ import { GitCompare, ExternalLink, Check, Plus, Minus, Clock } from 'lucide-reac
 import { WatchModel, WatchDiff } from '../types';
 import { api } from '../api';
 import { Modal } from './Modal';
+import { externalLinkProps } from '../externalLink';
 
 interface DiffModalProps {
   watch: WatchModel | null;
@@ -198,9 +199,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
         </button>
 
         <a
-          href={watch.url}
-          target="_blank"
-          rel="noopener noreferrer"
+          {...externalLinkProps(watch.url)}
           onClick={() => {
             // 差分を確認したうえでサイトへ移動する動線。移動と同時に既読にする。
             void markViewed();
