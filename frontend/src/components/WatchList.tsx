@@ -6,6 +6,8 @@ import { isUnviewed } from '../watchStatus';
 
 interface WatchListProps {
   watches: WatchModel[];
+  // 初回の取得が終わったか。終わるまでは「1 件も無い」と決めつけない。
+  loaded: boolean;
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
@@ -26,6 +28,7 @@ const TABS: { key: FilterTab; label: string }[] = [
 
 export const WatchList: React.FC<WatchListProps> = ({
   watches,
+  loaded,
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
@@ -100,7 +103,13 @@ export const WatchList: React.FC<WatchListProps> = ({
       </div>
 
       {/* 一覧 */}
-      {filteredWatches.length === 0 ? (
+      {!loaded ? (
+        // 読み込み中に空の一覧を描くと「まだ監視対象がありません」が一瞬出てしまう。
+        // 画面が読み込み直された直後にこれが出ると、登録が消えたように見える。
+        <div className="py-20 flex justify-center" role="status" aria-label="読み込み中">
+          <div className="w-7 h-7 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : filteredWatches.length === 0 ? (
         <div className="text-center py-16 bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-6">
           <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto mb-3">
             {search || activeTab !== 'all' ? <EyeOff className="w-6 h-6" /> : <Layers className="w-6 h-6" />}

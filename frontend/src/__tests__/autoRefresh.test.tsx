@@ -77,6 +77,29 @@ describe('30 秒ごとの自動更新', () => {
   });
 });
 
+describe('読み込み中の表示', () => {
+  it('does not claim the list is empty before the first fetch lands', async () => {
+    // 画面が読み込み直された直後の状態。取得が返るまでは何件あるか分からない。
+    let release: (watches: WatchModel[]) => void = () => undefined;
+    vi.spyOn(api, 'getWatches').mockReturnValue(
+      new Promise<WatchModel[]>((resolve) => {
+        release = resolve;
+      })
+    );
+
+    render(<App />);
+
+    // ログイン復元が済んで一覧の枠が出た時点でも、まだ空だと言い切ってはいけない
+    expect(await screen.findByRole('status', { name: '読み込み中' })).toBeInTheDocument();
+    expect(screen.queryByText('まだ監視対象がありません')).not.toBeInTheDocument();
+
+    await act(async () => {
+      release([makeWatch()]);
+    });
+    expect(await screen.findByText('ぐらんぶる')).toBeInTheDocument();
+  });
+});
+
 describe('一覧の並び', () => {
   const noop = async () => undefined;
 
@@ -84,6 +107,7 @@ describe('一覧の並び', () => {
     render(
       <WatchList
         watches={watches}
+        loaded
         onTriggerCheck={noop}
         onTogglePause={noop}
         onOpenDiff={() => undefined}
@@ -111,6 +135,7 @@ describe('一覧の並び', () => {
     rerender(
       <WatchList
         watches={[{ ...first, lastChecked: 1_700_100_000 }, second]}
+        loaded
         onTriggerCheck={noop}
         onTogglePause={noop}
         onOpenDiff={() => undefined}

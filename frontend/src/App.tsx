@@ -268,6 +268,7 @@ export default function App() {
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6">
         <WatchList
           watches={watches}
+          loaded={watchesLoaded}
           onTriggerCheck={handleTriggerCheck}
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
