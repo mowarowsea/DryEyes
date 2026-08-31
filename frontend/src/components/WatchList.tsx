@@ -10,6 +10,7 @@ interface WatchListProps {
   onOpenDiff: (watch: WatchModel) => void;
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
+  onShare: (watch: WatchModel) => void;
   onOpenCreateModal: () => void;
   /** 監視ID -> 設定を保存した時刻。ファビコンのキャッシュを破棄するのに使う。 */
   faviconVersions?: Record<string, number>;
@@ -35,6 +36,7 @@ export const WatchList: React.FC<WatchListProps> = ({
   onOpenDiff,
   onEdit,
   onDelete,
+  onShare,
   onOpenCreateModal,
   faviconVersions,
 }) => {
@@ -136,6 +138,7 @@ export const WatchList: React.FC<WatchListProps> = ({
               onOpenDiff={onOpenDiff}
               onEdit={onEdit}
               onDelete={onDelete}
+              onShare={onShare}
               faviconVersion={faviconVersions?.[watch.id]}
             />
           ))}

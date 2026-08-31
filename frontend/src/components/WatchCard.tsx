@@ -7,7 +7,9 @@ import {
   Play,
   RefreshCw,
   Settings2,
+  Share2,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { WatchModel } from '../types';
 
@@ -18,6 +20,7 @@ interface WatchCardProps {
   onOpenDiff: (watch: WatchModel) => void;
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
+  onShare: (watch: WatchModel) => void;
   /** 設定を保存した時刻。変わるとファビコンをブラウザキャッシュから読まずに取り直す。 */
   faviconVersion?: number;
 }
@@ -58,6 +61,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onOpenDiff,
   onEdit,
   onDelete,
+  onShare,
   faviconVersion,
 }) => {
   const [checking, setChecking] = useState(false);
@@ -105,6 +109,9 @@ export const WatchCard: React.FC<WatchCardProps> = ({
     }
   };
 
+  // isOwner を持たない古いレスポンスは自分の監視しか含まれていなかったので所有者扱いにする
+  const isOwner = watch.isOwner ?? true;
+
   // 未読判定は BFF が返す hasUnviewed を使う。
   // 古いレスポンス等で欠けている場合のみ、直近の変更検知にフォールバックする。
   const hasUnviewed =
@@ -132,6 +139,14 @@ export const WatchCard: React.FC<WatchCardProps> = ({
       </span>
     );
   }
+
+  // 自分が所有していない（共有されているだけの）監視だと分かるようにする
+  const sharedBadge = !isOwner ? (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-200/60 dark:bg-indigo-500/10 dark:text-indigo-300 dark:border-indigo-500/30">
+      <Users className="w-2.5 h-2.5 mr-0.5" />
+      共有中
+    </span>
+  ) : null;
 
   // カード本体のタップで差分モーダルを開く。メニュー内の操作には伝播させない。
   const stopPropagation = (e: React.MouseEvent) => e.stopPropagation();
@@ -233,40 +248,59 @@ export const WatchCard: React.FC<WatchCardProps> = ({
                 今すぐチェック
               </button>
 
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  onTogglePause(watch.id, !watch.paused);
-                }}
-                className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
-              >
-                {watch.paused ? (
-                  <Play className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <Pause className="w-3.5 h-3.5 text-slate-400" />
-                )}
-                {watch.paused ? '監視を再開' : '監視を停止'}
-              </button>
+              {isOwner && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onTogglePause(watch.id, !watch.paused);
+                  }}
+                  className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+                >
+                  {watch.paused ? (
+                    <Play className="w-3.5 h-3.5 text-emerald-500" />
+                  ) : (
+                    <Pause className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  {watch.paused ? '監視を再開' : '監視を停止'}
+                </button>
+              )}
 
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  onEdit(watch);
-                }}
-                className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
-              >
-                <Settings2 className="w-3.5 h-3.5 text-slate-400" />
-                設定を変更
-              </button>
+              {isOwner && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onEdit(watch);
+                  }}
+                  className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+                >
+                  <Settings2 className="w-3.5 h-3.5 text-slate-400" />
+                  設定を変更
+                </button>
+              )}
 
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className={`${menuItemClass} text-rose-600 dark:text-rose-400 border-t border-slate-100 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-500/10`}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                削除
-              </button>
+              {isOwner && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onShare(watch);
+                  }}
+                  className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+                >
+                  <Share2 className="w-3.5 h-3.5 text-slate-400" />
+                  別ユーザへ共有
+                </button>
+              )}
+
+              {isOwner && (
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className={`${menuItemClass} text-rose-600 dark:text-rose-400 border-t border-slate-100 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-500/10`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  削除
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -274,6 +308,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
 
       <div className="mt-1 pl-7 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
         {statusBadge}
+        {sharedBadge}
         <span>
           更新: <span className="text-slate-700 dark:text-slate-300 font-medium">{watch.lastChanged ? formatTime(watch.lastChanged) : 'なし'}</span>
         </span>

@@ -53,6 +53,18 @@ export function createUser(username: string, password: string): UserRecord {
   return user;
 }
 
+// 共有先を指定するときのユーザー名検索。存在有無を返すだけで passwordHash は含めない。
+export function findPublicUserByUsername(username: string): PublicUser | null {
+  const user = findByUsername((username || '').trim());
+  return user ? toPublicUser(user) : null;
+}
+
+// 共有先一覧を表示するとき、保持している userId から表示用の情報へ引き直す
+export function findPublicUserById(id: string): PublicUser | null {
+  const user = store.get().users.find((u) => u.id === id);
+  return user ? toPublicUser(user) : null;
+}
+
 export function verifyCredentials(username: string, password: string): UserRecord {
   const user = findByUsername((username || '').trim());
   // ユーザーの存在有無を漏らさないよう、どちらの失敗も同じ文言にする

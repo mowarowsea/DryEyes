@@ -2,6 +2,15 @@ import { Response, Router } from 'express';
 import { changedetectionClient } from '../services/changedetection.js';
 import { assignOwner, isOwnedBy, pruneMissing, releaseOwner } from '../services/ownership.js';
 import {
+  clearShares,
+  getSharedUserIds,
+  isSharedWith,
+  pruneMissing as pruneShares,
+  shareWatch,
+  unshareWatch,
+} from '../services/sharing.js';
+import { findPublicUserById, findPublicUserByUsername } from '../services/users.js';
+import {
   clearViewStates,
   countUnviewedChanges,
   getViewState,
@@ -11,7 +20,13 @@ import {
 } from '../services/viewState.js';
 import { diffSnapshots, splitSnapshotLines } from '../services/diff.js';
 import { requireAuth } from '../middleware/auth.js';
-import { CreateWatchDto, UpdateWatchDto, WatchDiffResponse, WatchModel } from '../types/index.js';
+import {
+  CreateWatchDto,
+  PublicUser,
+  UpdateWatchDto,
+  WatchDiffResponse,
+  WatchModel,
+} from '../types/index.js';
 
 export const watchesRouter = Router();
 
@@ -21,32 +36,50 @@ const INITIAL_PREVIEW_LINES = 30;
 // 監視は必ずログインユーザーに紐づく
 watchesRouter.use(requireAuth);
 
-// 他ユーザーの監視は「存在しない」ものとして扱い、IDの存在有無も漏らさない
-function ensureOwned(watchId: string, userId: string, res: Response): boolean {
+// 設定変更・削除・共有管理は所有者のみ。他ユーザーの監視は「存在しない」ものとして扱い、
+// IDの存在有無も漏らさない
+function ensureOwner(watchId: string, userId: string, res: Response): boolean {
   if (isOwnedBy(watchId, userId)) return true;
   res.status(404).json({ error: 'Not found', message: '監視が見つかりません' });
   return false;
 }
 
-// changedetection.io は既読を持たないため、DryEyes 側の既読状態を合成して返す
-function withViewState(watch: WatchModel, userId: string): WatchModel {
+// 閲覧・チェック・既読操作は所有者に加えて共有された相手も可能
+function ensureAccess(watchId: string, userId: string, res: Response): boolean {
+  if (isOwnedBy(watchId, userId) || isSharedWith(watchId, userId)) return true;
+  res.status(404).json({ error: 'Not found', message: '監視が見つかりません' });
+  return false;
+}
+
+function sharedUsersOf(watchId: string): PublicUser[] {
+  return getSharedUserIds(watchId)
+    .map((id) => findPublicUserById(id))
+    .filter((u): u is PublicUser => !!u);
+}
+
+// changedetection.io は既読・所有者を持たないため、DryEyes 側の情報を合成して返す
+function withUserContext(watch: WatchModel, userId: string): WatchModel {
   return {
     ...watch,
     hasUnviewed: hasUnviewedChange(userId, watch.id, watch.lastChanged),
     unviewedCount: countUnviewedChanges(userId, watch.id, watch.snapshotCount, watch.lastChanged),
     lastViewedAt: getViewState(userId, watch.id)?.viewedAt ?? null,
+    isOwner: isOwnedBy(watch.id, userId),
   };
 }
 
-// 一覧取得（ログインユーザーの監視のみ）
+// 一覧取得（ログインユーザーが所有 or 共有されている監視のみ）
 watchesRouter.get('/', async (req, res) => {
   try {
     const watches = await changedetectionClient.listWatches();
     // changedetection.io 側で直接消された監視の情報を掃除する
     pruneMissing(watches.map((w) => w.id));
+    pruneShares(watches.map((w) => w.id));
     pruneViewStates(watches.map((w) => w.id));
     res.json(
-      watches.filter((w) => isOwnedBy(w.id, req.user!.id)).map((w) => withViewState(w, req.user!.id))
+      watches
+        .filter((w) => isOwnedBy(w.id, req.user!.id) || isSharedWith(w.id, req.user!.id))
+        .map((w) => withUserContext(w, req.user!.id))
     );
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch watches', message: err.message });
@@ -55,10 +88,10 @@ watchesRouter.get('/', async (req, res) => {
 
 // 単一取得
 watchesRouter.get('/:id', async (req, res) => {
-  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  if (!ensureAccess(req.params.id, req.user!.id, res)) return;
   try {
     const watch = await changedetectionClient.getWatch(req.params.id);
-    res.json(withViewState(watch, req.user!.id));
+    res.json(withUserContext(watch, req.user!.id));
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch watch', message: err.message });
   }
@@ -73,7 +106,7 @@ watchesRouter.post('/', async (req, res) => {
     }
     const newWatch = await changedetectionClient.createWatch(dto, req.user!.ntfyTopic);
     assignOwner(newWatch.id, req.user!.id);
-    res.status(201).json(newWatch);
+    res.status(201).json(withUserContext(newWatch, req.user!.id));
   } catch (err: any) {
     // changedetection.io が返したバリデーションエラーはそのままクライアントへ伝える
     const status = err.status >= 400 && err.status < 500 ? err.status : 500;
@@ -81,25 +114,26 @@ watchesRouter.post('/', async (req, res) => {
   }
 });
 
-// 更新
+// 更新（所有者のみ）
 watchesRouter.patch('/:id', async (req, res) => {
-  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  if (!ensureOwner(req.params.id, req.user!.id, res)) return;
   try {
     const dto: UpdateWatchDto = req.body;
     const updated = await changedetectionClient.updateWatch(req.params.id, dto, req.user!.ntfyTopic);
-    res.json(withViewState(updated, req.user!.id));
+    res.json(withUserContext(updated, req.user!.id));
   } catch (err: any) {
     const status = err.status >= 400 && err.status < 500 ? err.status : 500;
     res.status(status).json({ error: 'Failed to update watch', message: err.message });
   }
 });
 
-// 削除
+// 削除（所有者のみ）
 watchesRouter.delete('/:id', async (req, res) => {
-  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  if (!ensureOwner(req.params.id, req.user!.id, res)) return;
   try {
     await changedetectionClient.deleteWatch(req.params.id);
     releaseOwner(req.params.id);
+    clearShares(req.params.id);
     clearViewStates(req.params.id);
     res.status(204).send();
   } catch (err: any) {
@@ -109,7 +143,7 @@ watchesRouter.delete('/:id', async (req, res) => {
 
 // 手動チェック
 watchesRouter.post('/:id/check', async (req, res) => {
-  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  if (!ensureAccess(req.params.id, req.user!.id, res)) return;
   try {
     await changedetectionClient.triggerCheck(req.params.id);
     res.json({ success: true, message: 'Check triggered successfully' });
@@ -120,7 +154,7 @@ watchesRouter.post('/:id/check', async (req, res) => {
 
 // 履歴取得
 watchesRouter.get('/:id/history', async (req, res) => {
-  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  if (!ensureAccess(req.params.id, req.user!.id, res)) return;
   try {
     const history = await changedetectionClient.getHistory(req.params.id);
     res.json(history);
@@ -129,11 +163,46 @@ watchesRouter.get('/:id/history', async (req, res) => {
   }
 });
 
+// 共有先一覧（所有者のみ）
+watchesRouter.get('/:id/shares', async (req, res) => {
+  if (!ensureOwner(req.params.id, req.user!.id, res)) return;
+  res.json(sharedUsersOf(req.params.id));
+});
+
+// 共有を追加（所有者のみ）
+watchesRouter.post('/:id/shares', async (req, res) => {
+  const watchId = req.params.id;
+  if (!ensureOwner(watchId, req.user!.id, res)) return;
+
+  const username = String(req.body?.username || '').trim();
+  if (!username) {
+    return res.status(400).json({ error: 'Invalid target', message: 'ユーザー名を入力してください' });
+  }
+
+  const target = findPublicUserByUsername(username);
+  if (!target) {
+    return res.status(404).json({ error: 'Not found', message: 'そのユーザー名は見つかりません' });
+  }
+  if (target.id === req.user!.id) {
+    return res.status(400).json({ error: 'Invalid target', message: '自分自身には共有できません' });
+  }
+
+  shareWatch(watchId, target.id);
+  res.status(201).json(sharedUsersOf(watchId));
+});
+
+// 共有を解除（所有者のみ）
+watchesRouter.delete('/:id/shares/:userId', async (req, res) => {
+  if (!ensureOwner(req.params.id, req.user!.id, res)) return;
+  unshareWatch(req.params.id, req.params.userId);
+  res.status(204).send();
+});
+
 // 差分取得（前回このユーザーが確認した時点 → 最新スナップショット）
 watchesRouter.get('/:id/diff', async (req, res) => {
   const watchId = req.params.id;
   const userId = req.user!.id;
-  if (!ensureOwned(watchId, userId, res)) return;
+  if (!ensureAccess(watchId, userId, res)) return;
 
   try {
     // 新しい順
@@ -194,7 +263,7 @@ watchesRouter.get('/:id/diff', async (req, res) => {
 // 既読にする（最新スナップショットまで確認済みとして記録）
 watchesRouter.post('/:id/viewed', async (req, res) => {
   const watchId = req.params.id;
-  if (!ensureOwned(watchId, req.user!.id, res)) return;
+  if (!ensureAccess(watchId, req.user!.id, res)) return;
 
   try {
     const history = await changedetectionClient.getHistory(watchId);
