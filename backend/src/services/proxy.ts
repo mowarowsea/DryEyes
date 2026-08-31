@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-// 注入する Element Inspector スクリプト
+// 注入する Element Inspector スクリプト。
+// <head> の先頭に置いて、ページ自身のスクリプトより先にリスナーを登録する。
+// こうしないと、リンクやSPAのルーターに先回りされて画面が遷移してしまう。
 const INSPECTOR_SCRIPT = `
 <script>
 (function() {
@@ -20,7 +22,7 @@ const INSPECTOR_SCRIPT = `
       transition: all 0.2s ease !important;
     }
   \`;
-  document.head.appendChild(style);
+  (document.head || document.documentElement).appendChild(style);
 
   let batchHighlightedElements = [];
 
@@ -59,6 +61,36 @@ const INSPECTOR_SCRIPT = `
       clearBatchHighlight();
     }
   });
+
+  // ---- 要素を選ぶための画面なので、ページ側の遷移は一切起こさせない ----
+
+  // デフォルト動作（リンク遷移・フォーム送信）と、ページ自身のハンドラの両方を止める。
+  // stopPropagation ではなく stopImmediatePropagation なのは、
+  // ページが document に先に付けたリスナー（SPAのルーターなど）も黙らせるため。
+  function blockEvent(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+
+  // デフォルト動作は残したまま（スクロールやクリック生成を壊さない）、
+  // ページ側のハンドラだけを黙らせる。
+  function muteEvent(e) {
+    e.stopImmediatePropagation();
+  }
+
+  ['mousedown', 'mouseup', 'auxclick', 'submit', 'dragstart'].forEach(function(type) {
+    document.addEventListener(type, blockEvent, true);
+  });
+  ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'keydown', 'keyup'].forEach(function(type) {
+    document.addEventListener(type, muteEvent, true);
+  });
+
+  // クリック以外の遷移経路（新規ウィンドウ・SPAの履歴操作）も塞ぐ
+  try { window.open = function() { return null; }; } catch (e) {}
+  try {
+    history.pushState = function() {};
+    history.replaceState = function() {};
+  } catch (e) {}
 
   // XPath 計算ヘルパー（厳密な単一要素）
   function getExactXPath(element) {
@@ -154,7 +186,7 @@ const INSPECTOR_SCRIPT = `
       highlightedEl.classList.remove('dryeyes-inspect-hover');
     }
     highlightedEl = e.target;
-    if (highlightedEl) {
+    if (highlightedEl && highlightedEl.classList) {
       highlightedEl.classList.add('dryeyes-inspect-hover');
     }
   }, true);
@@ -181,9 +213,10 @@ const INSPECTOR_SCRIPT = `
   // クリック/タップ
   document.addEventListener('click', function(e) {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
 
     const target = e.target;
+    if (!target || target.nodeType !== 1) return;
     const exactXPath = getExactXPath(target);
     const similar = getSimilarXPath(target, exactXPath);
     const selector = getCssSelector(target);
@@ -222,21 +255,17 @@ export async function fetchProxyPage(targetUrl: string): Promise<string> {
 
   let html = response.data;
 
-  // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる
-  const baseTag = `<base href="${targetUrl}">`;
-  if (html.includes('<head>')) {
-    html = html.replace('<head>', `<head>${baseTag}`);
-  } else if (html.includes('<html>')) {
-    html = html.replace('<html>', `<html><head>${baseTag}</head>`);
+  // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる。
+  // Inspector はページ自身のスクリプトより先に動く必要があるので、同じ位置（<head> の先頭）へ入れる。
+  const headInjection = `<base href="${targetUrl}">${INSPECTOR_SCRIPT}`;
+  const headMatch = html.match(/<head[^>]*>/i);
+  const htmlMatch = html.match(/<html[^>]*>/i);
+  if (headMatch) {
+    html = html.replace(headMatch[0], `${headMatch[0]}${headInjection}`);
+  } else if (htmlMatch) {
+    html = html.replace(htmlMatch[0], `${htmlMatch[0]}<head>${headInjection}</head>`);
   } else {
-    html = `${baseTag}${html}`;
-  }
-
-  // 末尾に Inspector スクリプトを挿入
-  if (html.includes('</body>')) {
-    html = html.replace('</body>', `${INSPECTOR_SCRIPT}</body>`);
-  } else {
-    html += INSPECTOR_SCRIPT;
+    html = `${headInjection}${html}`;
   }
 
   return html;

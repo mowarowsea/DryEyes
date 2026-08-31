@@ -163,6 +163,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
               <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">ページを読み込み中...</span>
             </div>
           )}
+          {/* 選ぶだけの画面なので、フォーム送信で遷移しないよう allow-forms は付けない */}
           <iframe
             id="dryeyes-preview-iframe"
             key={iframeKey}
@@ -170,7 +171,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             onLoad={() => setLoading(false)}
             className="w-full h-full border-none bg-white dark:bg-slate-900"
             title="Page Preview"
-            sandbox="allow-scripts allow-same-origin allow-forms"
+            sandbox="allow-scripts allow-same-origin"
           />
         </div>
 
