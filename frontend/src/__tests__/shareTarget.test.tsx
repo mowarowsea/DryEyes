@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
@@ -87,5 +88,21 @@ describe('共有シートからの起動', () => {
 
     await waitFor(() => expect(api.getWatches).toHaveBeenCalled());
     expect(screen.queryByText('監視対象URLの入力')).not.toBeInTheDocument();
+  });
+
+  // 開発サーバーでは <React.StrictMode> が起動時の処理を 2 回走らせる。
+  // 共有パラメータを読み取って URL から消す処理がその 2 回目で空振りすると、
+  // 共有したのにホーム画面が出るだけになってしまう。
+  it('survives the double invocation of React StrictMode', async () => {
+    openedFromShareSheet(`/share?shared=${encodeURIComponent('https://example.com/manga')}`);
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+
+    expect(await screen.findByTitle('Page Preview')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
   });
 });

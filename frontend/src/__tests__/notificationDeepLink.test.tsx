@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
@@ -111,5 +112,21 @@ describe('ntfy 通知からの起動', () => {
     await waitFor(() => expect(screen.getByText('ぐらんぶる')).toBeInTheDocument());
     expect(getDiff).not.toHaveBeenCalled();
     expect(screen.queryByText('変更点')).not.toBeInTheDocument();
+  });
+
+  // 通知タップも共有シートと同じく「クエリを読み取って URL から消す」処理に乗っている。
+  // <React.StrictMode> の二重実行で 2 回目が空振りすると、差分が開かなくなる。
+  it('survives the double invocation of React StrictMode', async () => {
+    const getDiff = vi.spyOn(api, 'getDiff').mockResolvedValue(diff);
+    openedFromNotification('watch-1');
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+
+    await waitFor(() => expect(getDiff).toHaveBeenCalledWith('watch-1'));
+    expect(await screen.findByText('第112話')).toBeInTheDocument();
   });
 });

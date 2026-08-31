@@ -8,7 +8,7 @@ import { DiffModal } from './components/DiffModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
-import { takePendingWatchId, takeCreateIntent } from './deepLink';
+import { takePendingWatchId, takeCreateIntent, CreateIntent } from './deepLink';
 import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
 
 // booting: 保存済みトークンの検証中 / anon: 未ログイン / ready: ログイン済み
@@ -30,11 +30,12 @@ export default function App() {
   const [watchesLoaded, setWatchesLoaded] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
   // ntfy 通知から開かれたときに、その監視の差分を出すための ID
-  const [pendingWatchId, setPendingWatchId] = useState<string | null>(() => takePendingWatchId());
-  // 共有シート（?url=…）やホーム画面のショートカット（?add=1）から開かれたときの登録内容。
+  const [pendingWatchId, setPendingWatchId] = useState<string | null>(null);
+  // 共有シートやホーム画面のショートカット（?add=1）から開かれたときの登録内容。
   // ログイン前に共有された場合もあるため、ログインが済むまで持ち越す。
   const [sharedUrl, setSharedUrl] = useState<string | null>(null);
-  const [pendingCreateIntent, setPendingCreateIntent] = useState(() => takeCreateIntent());
+  const [pendingCreateIntent, setPendingCreateIntent] = useState<CreateIntent | null>(null);
+  const launchLinkRead = useRef(false);
   const toastTimer = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -42,6 +43,18 @@ export default function App() {
     // 続けてトーストを出したとき、前のタイマーで新しいメッセージが早く消されないようにする
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMessage(null), 3000);
+  }, []);
+
+  // 起動時のリンク（通知タップ・共有シート）を 1 度だけ読む。
+  // これらは「クエリを読み取って URL から消す」副作用を伴うため、useState の初期化子には置けない。
+  // 開発時の <React.StrictMode> は初期化を 2 回走らせるので、2 回目が空振りして
+  // 共有したのにホーム画面が出るだけ、という状態になってしまう。
+  useEffect(() => {
+    if (launchLinkRead.current) return;
+    launchLinkRead.current = true;
+
+    setPendingWatchId(takePendingWatchId());
+    setPendingCreateIntent(takeCreateIntent());
   }, []);
 
   // テーマの反映。'system' のときは端末側の設定変更にも追従する。
