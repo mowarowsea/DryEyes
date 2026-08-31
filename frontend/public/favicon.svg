@@ -1,0 +1,20 @@
+<!-- DryEyes のアイコン原本。ずっと見張っていても威圧感が出ないよう、
+     視線を正面から少し外し、瞳を大きめ + ハイライト入りにしている。
+     PNG 各サイズ（PWA / apple-touch / png フォールバック）は
+     scripts/render-icons.py がこの形をそのまま描き出す。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DryEyes">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+    <clipPath id="lens"><path d="M88 256 C 156 132 214 112 256 112 C 298 112 356 132 424 256 C 356 340 298 360 256 360 C 214 360 156 340 88 256 Z"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g transform="rotate(-6 256 240)">
+    <path d="M88 256 C 156 132 214 112 256 112 C 298 112 356 132 424 256 C 356 340 298 360 256 360 C 214 360 156 340 88 256 Z" fill="#ffffff" stroke="#ffffff" stroke-width="26" stroke-linejoin="round"/>
+    <g clip-path="url(#lens)"><circle cx="238" cy="240" r="94" fill="#4338ca"/></g>
+    <circle cx="212" cy="210" r="30" fill="#ffffff"/>
+    <circle cx="266" cy="270" r="13" fill="#ffffff" fill-opacity="0.5"/>
+  </g>
+</svg>
