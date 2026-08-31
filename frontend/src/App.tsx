@@ -14,6 +14,10 @@ import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } f
 // booting: 保存済みトークンの検証中 / anon: 未ログイン / ready: ログイン済み
 type AuthState = 'booting' | 'anon' | 'ready';
 
+// ポーリング結果が前回と同じかどうか。同じなら state を触らず、再描画自体を起こさない。
+const isSameWatchList = (a: WatchModel[], b: WatchModel[]): boolean =>
+  a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
+
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>('booting');
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -105,15 +109,25 @@ export default function App() {
   const fetchData = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
-      const [healthData, watchesData] = await Promise.all([
-        api.getHealth().catch(() => null),
-        api.getWatches().catch(() => []),
+      const [healthResult, watchesResult] = await Promise.allSettled([
+        api.getHealth(),
+        api.getWatches(),
       ]);
-      setHealth(healthData);
-      setWatches(watchesData);
-      setWatchesLoaded(true);
-    } catch (err: any) {
-      console.error(err);
+
+      // 取れなかったものは前回の表示をそのまま残す。
+      // ここで空配列や null に落としてしまうと、30 秒ごとの裏取得がたまたま失敗しただけで
+      // 一覧が一瞬カラになり「まだ監視対象がありません」が出る（画面がリロードされたように見える）。
+      if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
+
+      if (watchesResult.status === 'fulfilled') {
+        const next = watchesResult.value;
+        // 中身が前回と同じなら state を差し替えない。同じ内容で再描画すると、
+        // 一覧がちらついたり開いているメニューが閉じたりするだけで、得るものがない。
+        setWatches((prev) => (isSameWatchList(prev, next) ? prev : next));
+        setWatchesLoaded(true);
+      } else {
+        console.error(watchesResult.reason);
+      }
     } finally {
       if (!isSilent) setLoading(false);
     }

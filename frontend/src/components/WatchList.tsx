@@ -51,10 +51,11 @@ export const WatchList: React.FC<WatchListProps> = ({
       return true;
     });
 
-    // 更新日付の降順。まだ変更が無い監視は最後に、最終確認の新しい順で並べる。
+    // 更新日付の降順。まだ変更が無い監視は最後にまとめる。
+    // 並び替えに lastChecked は使わない。裏のチェックが走るたびに動く値なので、
+    // 見ている最中にカードの順番が勝手に入れ替わってしまう。
     return matched.sort(
-      (a, b) =>
-        (b.lastChanged ?? 0) - (a.lastChanged ?? 0) || (b.lastChecked ?? 0) - (a.lastChecked ?? 0)
+      (a, b) => (b.lastChanged ?? 0) - (a.lastChanged ?? 0) || a.id.localeCompare(b.id)
     );
   }, [watches, search, activeTab]);
 
