@@ -7,6 +7,7 @@ import { WatchModel } from '../types';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 describe('WatchCard', () => {
@@ -36,20 +37,28 @@ describe('WatchCard', () => {
         watch={{ ...mockWatch, ...watch }}
         onTriggerCheck={vi.fn()}
         onTogglePause={vi.fn()}
-        onViewHistory={vi.fn()}
         onOpenDiff={vi.fn()}
+        onEdit={vi.fn()}
         onDelete={vi.fn()}
         {...handlers}
       />
     );
 
-  it('renders title, url, interval, and normal status badge', () => {
-    renderCard();
+  const openMenu = () => fireEvent.click(screen.getByLabelText('操作メニュー'));
+
+  it('renders the title with the site favicon and keeps the card compact', () => {
+    const { container } = renderCard();
 
     expect(screen.getByText('テスト商品監視')).toBeInTheDocument();
-    expect(screen.getByText('https://example.com/product')).toBeInTheDocument();
-    expect(screen.getByText('10分毎')).toBeInTheDocument();
-    expect(screen.getByText('正常')).toBeInTheDocument();
+    // ファビコンは BFF 経由で取る（サイト直読みでは取れないサイトが多いため）
+    expect(container.querySelector('img')).toHaveAttribute(
+      'src',
+      `/api/proxy/favicon?url=${encodeURIComponent('https://example.com/product')}`
+    );
+    // URL とチェック間隔はカードから省いている
+    expect(screen.queryByText('https://example.com/product')).not.toBeInTheDocument();
+    expect(screen.queryByText('10分毎')).not.toBeInTheDocument();
+    expect(screen.queryByText('タップして変更点を見る')).not.toBeInTheDocument();
   });
 
   it('renders paused status badge when paused is true', () => {
@@ -65,13 +74,16 @@ describe('WatchCard', () => {
     expect(screen.getByText('404 Not Found')).toBeInTheDocument();
   });
 
-  it('calls onTriggerCheck when play button is clicked', () => {
-    const handleCheck = vi.fn().mockResolvedValue(undefined);
-    renderCard({}, { onTriggerCheck: handleCheck });
+  it('shows how many updates happened since the last time it was viewed', () => {
+    renderCard({ hasUnviewed: true, unviewedCount: 3, lastChanged: 1700000500 });
 
-    fireEvent.click(screen.getByTitle('今すぐチェック'));
+    expect(screen.getByText('3回更新')).toBeInTheDocument();
+  });
 
-    expect(handleCheck).toHaveBeenCalledWith('test-123');
+  it('shows no update badge once everything has been viewed', () => {
+    renderCard({ hasUnviewed: false, unviewedCount: 0, lastChanged: 1700000000 });
+
+    expect(screen.queryByText(/回更新/)).not.toBeInTheDocument();
   });
 
   it('opens the diff when the card body is tapped', () => {
@@ -83,27 +95,76 @@ describe('WatchCard', () => {
     expect(handleOpenDiff).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
   });
 
-  it('does not open the diff when an action button is tapped', () => {
+  it('does not open the diff when the option menu is used', () => {
     const handleOpenDiff = vi.fn();
-    renderCard({}, { onOpenDiff: handleOpenDiff, onTriggerCheck: vi.fn().mockResolvedValue(undefined) });
+    renderCard({}, { onOpenDiff: handleOpenDiff });
 
-    // 操作ボタンやリンクのタップでカードのタップ扱いにならないこと
-    fireEvent.click(screen.getByTitle('今すぐチェック'));
-    fireEvent.click(screen.getByText('https://example.com/product'));
+    openMenu();
 
+    expect(screen.getByText('今すぐチェック')).toBeInTheDocument();
     expect(handleOpenDiff).not.toHaveBeenCalled();
   });
 
-  it('shows the unread badge when the BFF reports unviewed changes', () => {
-    renderCard({ hasUnviewed: true, lastChanged: 1700000500 });
+  it('triggers a check from the option menu', () => {
+    const handleCheck = vi.fn().mockResolvedValue(undefined);
+    renderCard({}, { onTriggerCheck: handleCheck });
 
-    expect(screen.getByText('未読の変更')).toBeInTheDocument();
+    openMenu();
+    fireEvent.click(screen.getByText('今すぐチェック'));
+
+    expect(handleCheck).toHaveBeenCalledWith('test-123');
   });
 
-  it('shows the normal badge once the change has been viewed', () => {
-    renderCard({ hasUnviewed: false, lastChanged: 1700000000, lastChecked: 1700000000 });
+  it('pauses and resumes from the option menu', () => {
+    const handleTogglePause = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = renderCard({}, { onTogglePause: handleTogglePause });
 
-    expect(screen.getByText('正常')).toBeInTheDocument();
-    expect(screen.queryByText('未読の変更')).not.toBeInTheDocument();
+    openMenu();
+    fireEvent.click(screen.getByText('監視を停止'));
+    expect(handleTogglePause).toHaveBeenCalledWith('test-123', true);
+
+    rerender(
+      <WatchCard
+        watch={{ ...mockWatch, paused: true }}
+        onTriggerCheck={vi.fn()}
+        onTogglePause={handleTogglePause}
+        onOpenDiff={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+
+    openMenu();
+    fireEvent.click(screen.getByText('監視を再開'));
+    expect(handleTogglePause).toHaveBeenLastCalledWith('test-123', false);
+  });
+
+  it('opens the settings editor from the option menu', () => {
+    const handleEdit = vi.fn();
+    renderCard({}, { onEdit: handleEdit });
+
+    openMenu();
+    fireEvent.click(screen.getByText('設定を変更'));
+
+    expect(handleEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
+  });
+
+  it('deletes from the option menu after confirmation', () => {
+    const handleDelete = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderCard({}, { onDelete: handleDelete });
+
+    openMenu();
+    fireEvent.click(screen.getByText('削除'));
+
+    expect(handleDelete).toHaveBeenCalledWith('test-123');
+  });
+
+  it('falls back to a placeholder icon when the favicon cannot be loaded', () => {
+    const { container } = renderCard();
+
+    fireEvent.error(container.querySelector('img')!);
+
+    expect(container.querySelector('img')).toBeNull();
   });
 });

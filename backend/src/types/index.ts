@@ -17,8 +17,10 @@ export interface WatchModel {
   subtractedFilters: string[]; // ignore selectors
   notificationTopic: string;
   tag?: string;
+  snapshotCount: number; // これまでに保存されたスナップショット数 (changedetection.io の history_n)
   // 以下は DryEyes 側で付与する情報（changedetection.io は所有者や既読を持たない）
   hasUnviewed?: boolean; // 未読の変更があるか
+  unviewedCount?: number; // 最後に差分を確認してから更新が検知された回数
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
 }
 
@@ -121,6 +123,9 @@ export interface WatchDiffResponse extends DiffResult {
 export interface WatchViewState {
   snapshotTimestamp: number; // 既読にしたスナップショットの時刻 (unix秒)
   viewedAt: string; // ISO8601
+  // 既読にした時点のスナップショット数。現在の数との差が「未読の更新回数」になる。
+  // この項目を導入する前に記録された状態には存在しない。
+  snapshotCount?: number;
 }
 
 export interface ViewStateStoreData {

@@ -80,21 +80,21 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
         {/* ヘッダー */}
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-start justify-between gap-2">
+        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-2">
           <div className="flex items-center space-x-2 min-w-0">
-            <GitCompare className="w-5 h-5 text-indigo-600 flex-shrink-0" />
+            <GitCompare className="w-5 h-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-slate-900 leading-none">変更点</h2>
-              <p className="text-xs text-slate-500 mt-1 truncate" title={watch.title}>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 leading-none">変更点</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate" title={watch.title}>
                 {watch.title}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition flex-shrink-0"
+            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition flex-shrink-0"
             title="閉じる"
           >
             <X className="w-5 h-5" />
@@ -103,14 +103,14 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
 
         {/* 比較範囲のサマリー */}
         {diff && !loading && (
-          <div className="px-4 sm:px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-            <span className="inline-flex items-center text-[11px] text-slate-500">
-              <Clock className="w-3 h-3 mr-1 text-slate-400" />
+          <div className="px-4 sm:px-5 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+            <span className="inline-flex items-center text-[11px] text-slate-500 dark:text-slate-400">
+              <Clock className="w-3 h-3 mr-1 text-slate-400 dark:text-slate-500" />
               {diff.from ? (
                 <>
-                  <strong className="text-slate-700 font-medium">{formatDateTime(diff.from)}</strong>
-                  <span className="mx-1.5 text-slate-300">→</span>
-                  <strong className="text-slate-700 font-medium">{formatDateTime(diff.to)}</strong>
+                  <strong className="text-slate-700 dark:text-slate-200 font-medium">{formatDateTime(diff.from)}</strong>
+                  <span className="mx-1.5 text-slate-300 dark:text-slate-600">→</span>
+                  <strong className="text-slate-700 dark:text-slate-200 font-medium">{formatDateTime(diff.to)}</strong>
                 </>
               ) : (
                 <span>{formatDateTime(diff.to)} 時点</span>
@@ -119,11 +119,11 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
 
             {hasChanges && (
               <span className="flex items-center space-x-1.5">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30">
                   <Plus className="w-3 h-3 mr-0.5" />
                   {diff.added}
                 </span>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/60">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-500/30">
                   <Minus className="w-3 h-3 mr-0.5" />
                   {diff.removed}
                 </span>
@@ -135,34 +135,34 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
         {/* 差分本体 */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="py-14 text-center text-slate-400 text-sm flex flex-col items-center">
+            <div className="py-14 text-center text-slate-400 dark:text-slate-500 text-sm flex flex-col items-center">
               <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3" />
               <span>変更点を読み込み中...</span>
             </div>
           ) : error ? (
-            <div className="m-4 sm:m-5 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs flex items-start space-x-2">
+            <div className="m-4 sm:m-5 p-4 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 rounded-xl text-xs flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           ) : isInitialOnly ? (
             <div className="p-4 sm:p-5">
-              <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
                 まだ最初のスナップショットしかないため、比較できる変更はありません。
                 現在監視している内容は次のとおりです。
               </p>
-              <pre className="text-[11px] font-mono bg-slate-50 border border-slate-200 rounded-xl p-3 whitespace-pre-wrap break-all leading-relaxed text-slate-600 max-h-72 overflow-y-auto">
+              <pre className="text-[11px] font-mono bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 whitespace-pre-wrap break-all leading-relaxed text-slate-600 dark:text-slate-300 max-h-72 overflow-y-auto">
                 {(diff?.currentPreview || []).join('\n') || '（内容が取得できませんでした）'}
               </pre>
             </div>
           ) : !hasChanges ? (
-            <div className="py-14 text-center text-slate-400 text-sm px-6">
+            <div className="py-14 text-center text-slate-400 dark:text-slate-500 text-sm px-6">
               <Check className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
               <p>この期間に変わった箇所はありません。</p>
             </div>
           ) : (
             <div className="px-2 sm:px-3 py-3">
               {!diff!.hasUnviewed && (
-                <p className="mx-1.5 mb-2 text-[11px] text-slate-400">
+                <p className="mx-1.5 mb-2 text-[11px] text-slate-400 dark:text-slate-500">
                   未読の変更はありません。直近の変更内容を表示しています。
                 </p>
               )}
@@ -173,7 +173,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
                     return (
                       <div
                         key={idx}
-                        className="my-1 py-1 text-center text-[10px] text-slate-400 bg-slate-50/80 border-y border-dashed border-slate-200"
+                        className="my-1 py-1 text-center text-[10px] text-slate-400 dark:text-slate-500 bg-slate-50/80 dark:bg-slate-800/60 border-y border-dashed border-slate-200 dark:border-slate-700"
                       >
                         変更なし {line.count} 行
                       </div>
@@ -182,10 +182,10 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
 
                   const style =
                     line.type === 'added'
-                      ? 'bg-emerald-50 text-emerald-800 border-l-2 border-emerald-400'
+                      ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-l-2 border-emerald-400 dark:border-emerald-500'
                       : line.type === 'removed'
-                        ? 'bg-rose-50 text-rose-800 border-l-2 border-rose-400'
-                        : 'text-slate-500 border-l-2 border-transparent';
+                        ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-800 dark:text-rose-200 border-l-2 border-rose-400 dark:border-rose-500'
+                        : 'text-slate-500 dark:text-slate-400 border-l-2 border-transparent';
                   const marker = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
 
                   return (
@@ -198,7 +198,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
               </div>
 
               {diff!.truncated && (
-                <p className="mt-2 mx-1.5 text-[10px] text-amber-600">
+                <p className="mt-2 mx-1.5 text-[10px] text-amber-600 dark:text-amber-400">
                   変更が多いため、途中までを表示しています。
                 </p>
               )}
@@ -207,14 +207,14 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
         </div>
 
         {/* フッター: 差分を確認したうえで監視対象サイトへ */}
-        <div className="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
+        <div className="px-4 sm:px-5 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between gap-2">
           <button
             onClick={async () => {
               await markViewed();
               onClose();
             }}
             disabled={marking}
-            className="px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 disabled:opacity-40 rounded-xl transition inline-flex items-center"
+            className="px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 disabled:opacity-40 rounded-xl transition inline-flex items-center"
           >
             <Check className="w-3.5 h-3.5 mr-1" />
             既読にする
@@ -228,7 +228,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
               // 差分を確認したうえでサイトへ移動する動線。移動と同時に既読にする。
               void markViewed();
             }}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-xs font-semibold rounded-xl shadow-sm shadow-indigo-200 inline-flex items-center"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-xs font-semibold rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none inline-flex items-center"
           >
             サイトを開く
             <ExternalLink className="w-3.5 h-3.5 ml-1.5" />

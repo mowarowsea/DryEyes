@@ -3,6 +3,7 @@ import { changedetectionClient } from '../services/changedetection.js';
 import { assignOwner, isOwnedBy, pruneMissing, releaseOwner } from '../services/ownership.js';
 import {
   clearViewStates,
+  countUnviewedChanges,
   getViewState,
   hasUnviewedChange,
   markViewed,
@@ -32,6 +33,7 @@ function withViewState(watch: WatchModel, userId: string): WatchModel {
   return {
     ...watch,
     hasUnviewed: hasUnviewedChange(userId, watch.id, watch.lastChanged),
+    unviewedCount: countUnviewedChanges(userId, watch.id, watch.snapshotCount, watch.lastChanged),
     lastViewedAt: getViewState(userId, watch.id)?.viewedAt ?? null,
   };
 }
@@ -198,7 +200,8 @@ watchesRouter.post('/:id/viewed', async (req, res) => {
     const history = await changedetectionClient.getHistory(watchId);
     // 履歴がまだ無い監視でも既読にできるよう現在時刻でフォールバックする
     const latest = history[0]?.timestamp ?? Math.floor(Date.now() / 1000);
-    const state = markViewed(req.user!.id, watchId, latest);
+    // このときのスナップショット数も残しておくと、次の一覧で未読の更新回数を数えられる
+    const state = markViewed(req.user!.id, watchId, latest, history.length);
     res.json({ success: true, ...state });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to mark as viewed', message: err.message });

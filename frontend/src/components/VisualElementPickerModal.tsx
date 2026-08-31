@@ -78,26 +78,26 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white w-full flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 w-full flex flex-col shadow-2xl overflow-hidden">
 
         {/* ヘッダー（最小化） */}
         <div className="px-3 py-2 bg-slate-900 text-white flex items-center justify-between flex-shrink-0">
           <div className="flex items-center space-x-2 min-w-0">
             <MousePointerClick className="w-4 h-4 text-indigo-400 flex-shrink-0" />
             <span className="text-xs font-bold truncate">要素を選択</span>
-            <span className="text-[11px] text-slate-400 truncate hidden sm:inline">{targetUrl}</span>
+            <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate hidden sm:inline">{targetUrl}</span>
           </div>
           <div className="flex items-center space-x-1 flex-shrink-0">
             <button
               onClick={() => { setLoading(true); setSelectedElement(null); setIframeKey((k) => k + 1); }}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition"
               title="リロード"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -105,11 +105,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         </div>
 
         {/* iframe プレビュー（残りの高さを全部使う） */}
-        <div className="relative flex-1 bg-slate-100 overflow-hidden">
+        <div className="relative flex-1 bg-slate-100 dark:bg-slate-800 overflow-hidden">
           {loading && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
               <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2" />
-              <span className="text-xs text-slate-600 font-medium">ページを読み込み中...</span>
+              <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">ページを読み込み中...</span>
             </div>
           )}
           <iframe
@@ -117,14 +117,14 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             key={iframeKey}
             src={proxyUrl}
             onLoad={() => setLoading(false)}
-            className="w-full h-full border-none bg-white"
+            className="w-full h-full border-none bg-white dark:bg-slate-900"
             title="Page Preview"
             sandbox="allow-scripts allow-same-origin allow-forms"
           />
         </div>
 
         {/* フッター（ボタンのみ、コンパクト） */}
-        <div className="px-3 py-2 bg-white border-t border-slate-200 flex items-center justify-between gap-2 flex-shrink-0">
+        <div className="px-3 py-2 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 flex-shrink-0">
           {/* 類似要素切り替えボタン（要素選択後のみ） */}
           <div className="flex-1 min-w-0">
             {hasSimilarElements && (
@@ -133,11 +133,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                 onClick={() => handleToggleSimilar(targetMode !== 'similar')}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition flex items-center space-x-1.5 ${
                   targetMode === 'similar'
-                    ? 'bg-purple-50 text-purple-700 border-purple-300'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-500/40'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                 }`}
               >
-                <Layers className={`w-3.5 h-3.5 flex-shrink-0 ${targetMode === 'similar' ? 'text-purple-600' : 'text-slate-400'}`} />
+                <Layers className={`w-3.5 h-3.5 flex-shrink-0 ${targetMode === 'similar' ? 'text-purple-600 dark:text-purple-400' : 'text-slate-400 dark:text-slate-500'}`} />
                 <span>
                   {targetMode === 'similar'
                     ? `類似 ${selectedElement?.similarCount}件 ハイライト中`
@@ -146,7 +146,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
               </button>
             )}
             {!selectedElement && (
-              <span className="text-xs text-slate-400 flex items-center">
+              <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center">
                 <AlertCircle className="w-3.5 h-3.5 mr-1 flex-shrink-0" />
                 見張りたい要素をタップ
               </span>
@@ -157,7 +157,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             <button
               onClick={() => handleConfirm(true)}
               disabled={!selectedElement}
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 disabled:opacity-40 transition rounded-lg"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 disabled:opacity-40 transition rounded-lg"
             >
               除外
             </button>

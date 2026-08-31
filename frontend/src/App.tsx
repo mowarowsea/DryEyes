@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { WatchList } from './components/WatchList';
 import { CreateWatchModal } from './components/CreateWatchModal';
-import { HistoryModal } from './components/HistoryModal';
+import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
 import { DiffModal } from './components/DiffModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
 import { takePendingWatchId } from './deepLink';
+import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
 
 // booting: 保存済みトークンの検証中 / anon: 未ログイン / ready: ログイン済み
 type AuthState = 'booting' | 'anon' | 'ready';
@@ -21,16 +22,31 @@ export default function App() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [historyTargetWatch, setHistoryTargetWatch] = useState<WatchModel | null>(null);
+  const [editTargetWatch, setEditTargetWatch] = useState<WatchModel | null>(null);
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
+  // 設定変更でURLを差し替えたときにファビコンを取り直すためのキャッシュ破棄キー（監視ID -> 保存時刻）
+  const [faviconVersions, setFaviconVersions] = useState<Record<string, number>>({});
   // ntfy 通知から開かれたときに、その監視の差分を出すための ID
   const [pendingWatchId, setPendingWatchId] = useState<string | null>(() => takePendingWatchId());
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  }, []);
+
+  // テーマの反映。'system' のときは端末側の設定変更にも追従する。
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== 'system') return;
+    return watchSystemTheme(() => applyTheme('system'));
+  }, [theme]);
+
+  const handleChangeTheme = useCallback((mode: ThemeMode) => {
+    setTheme(mode);
+    storeTheme(mode);
   }, []);
 
   const resetToAnonymous = useCallback(() => {
@@ -130,6 +146,26 @@ export default function App() {
     fetchData();
   };
 
+  const handleUpdateWatch = async (
+    id: string,
+    data: Partial<WatchModel>,
+    { recheck }: EditWatchOptions
+  ) => {
+    await api.updateWatch(id, data);
+    // URL を変えた場合に古いサイトのファビコンが残らないよう、画像も取り直させる
+    setFaviconVersions((prev) => ({ ...prev, [id]: Date.now() }));
+
+    if (recheck) {
+      // 新しい設定での取得結果を、これまでの履歴に続けて積む
+      await api.triggerCheck(id).catch(() => undefined);
+      showToast('設定を更新しました。新しい内容で取得中です');
+      setTimeout(() => fetchData(true), 2500);
+    } else {
+      showToast('監視の設定を更新しました');
+    }
+    fetchData(true);
+  };
+
   const handleTriggerCheck = async (id: string) => {
     await api.triggerCheck(id);
     showToast('チェックを開始しました');
@@ -152,7 +188,7 @@ export default function App() {
   // トークン検証中は画面のちらつきを避けるため何も出さない
   if (authState === 'booting') {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -162,13 +198,17 @@ export default function App() {
     return <LoginScreen onAuthenticated={handleAuthenticated} />;
   }
 
+  const userTopic = ntfy?.topic || user?.ntfyTopic || '';
+
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col font-sans pb-12">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans pb-12">
       <Header
         health={health}
         loading={loading}
         user={user}
         ntfy={ntfy}
+        theme={theme}
+        onChangeTheme={handleChangeTheme}
         onRefresh={() => fetchData()}
         onOpenCreateModal={() => setIsCreateModalOpen(true)}
         onLogout={handleLogout}
@@ -179,8 +219,9 @@ export default function App() {
           watches={watches}
           onTriggerCheck={handleTriggerCheck}
           onTogglePause={handleTogglePause}
-          onViewHistory={(w) => setHistoryTargetWatch(w)}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
+          onEdit={(w) => setEditTargetWatch(w)}
+          faviconVersions={faviconVersions}
           onDelete={handleDeleteWatch}
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
         />
@@ -191,13 +232,15 @@ export default function App() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={handleCreateWatch}
-        userTopic={ntfy?.topic || user?.ntfyTopic || ''}
+        userTopic={userTopic}
       />
 
-      <HistoryModal
-        watch={historyTargetWatch}
-        isOpen={!!historyTargetWatch}
-        onClose={() => setHistoryTargetWatch(null)}
+      <EditWatchModal
+        watch={editTargetWatch}
+        isOpen={!!editTargetWatch}
+        userTopic={userTopic}
+        onClose={() => setEditTargetWatch(null)}
+        onSubmit={handleUpdateWatch}
       />
 
       <DiffModal
@@ -209,7 +252,7 @@ export default function App() {
 
       {/* トースト通知 */}
       {toastMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur text-white px-4 py-2.5 rounded-xl text-xs font-medium shadow-lg animate-bounce">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 dark:bg-slate-700/95 backdrop-blur text-white px-4 py-2.5 rounded-xl text-xs font-medium shadow-lg animate-bounce">
           {toastMessage}
         </div>
       )}

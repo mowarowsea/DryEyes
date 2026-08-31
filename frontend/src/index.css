@@ -7,3 +7,18 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* スクロールバーやフォームの既定色もテーマに合わせる */
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* ダーク時のプレースホルダーが暗すぎて読めないため、明示的に指定する */
+html.dark ::placeholder {
+  color: rgb(100 116 139);
+  opacity: 1;
+}

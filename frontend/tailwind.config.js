@@ -1,6 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  // <html class="dark"> の有無で切り替える（OS 設定に追従する 'system' も同じ仕組みで扱う）
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {

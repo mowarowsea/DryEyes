@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { fetchProxyPage, getPageInfo } from '../services/proxy.js';
+import { getFavicon } from '../services/favicon.js';
 
 export const proxyRouter = Router();
 
@@ -10,6 +11,25 @@ proxyRouter.get('/info', async (req, res) => {
   }
   const info = await getPageInfo(targetUrl);
   res.json(info);
+});
+
+// 監視対象サイトのファビコン。ブラウザから直接読むと落とすサイトが多いので BFF が代理で取る。
+proxyRouter.get('/favicon', async (req, res) => {
+  const targetUrl = req.query.url as string;
+  if (!targetUrl) {
+    return res.status(400).json({ error: 'url parameter is required' });
+  }
+
+  const icon = await getFavicon(targetUrl);
+  if (!icon) {
+    // 取得できないサイトは画面側で代替アイコンにフォールバックする
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.status(404).end();
+  }
+
+  res.setHeader('Content-Type', icon.contentType);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(icon.data);
 });
 
 proxyRouter.get('/page', async (req, res) => {

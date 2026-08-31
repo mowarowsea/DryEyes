@@ -17,8 +17,10 @@ export interface WatchModel {
   subtractedFilters: string[];
   notificationTopic: string;
   tag?: string;
+  snapshotCount?: number; // これまでに保存されたスナップショット数
   // 以下は BFF が付与する DryEyes 側の情報
   hasUnviewed?: boolean; // まだ確認していない変更があるか
+  unviewedCount?: number; // 最後に差分を確認してから更新が検知された回数
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
 }
 
