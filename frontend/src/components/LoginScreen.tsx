@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, LogIn, ShieldAlert, UserPlus, Sparkles } from 'lucide-react';
+import { LogIn, ShieldAlert, UserPlus, Sparkles } from 'lucide-react';
 import { AuthSession } from '../types';
 import { api } from '../api';
+import { AppMark } from './AppMark';
 
 interface LoginScreenProps {
   onAuthenticated: (session: AuthSession) => void;
@@ -59,9 +60,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
       <div className="w-full max-w-sm">
         {/* ロゴ */}
         <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shadow-lg shadow-indigo-200 dark:shadow-none">
-            <Eye className="w-8 h-8" />
-          </div>
+          <AppMark className="w-14 h-14 rounded-2xl shadow-lg shadow-indigo-200 dark:shadow-none" />
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-3">DryEyes</h1>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 text-center">
             見張り続けるのは、DryEyesの仕事。

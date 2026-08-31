@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
 import {
-  Eye,
   Plus,
   RefreshCw,
   AlertCircle,
@@ -18,6 +17,7 @@ import { AuthUser, HealthStatus, NtfyInfo } from '../types';
 import { copyTextToClipboard } from '../clipboard';
 import { ThemeMode } from '../theme';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { AppMark } from './AppMark';
 
 interface HeaderProps {
   health: HealthStatus | null;
@@ -68,9 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 shadow-sm">
       <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shadow-md shadow-indigo-100 dark:shadow-none">
-            <Eye className="w-6 h-6" />
-          </div>
+          <AppMark className="w-10 h-10 rounded-xl shadow-md shadow-indigo-100 dark:shadow-none" />
           <div>
             <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-none">DryEyes</h1>
             <div className="flex items-center space-x-1.5 mt-1">
