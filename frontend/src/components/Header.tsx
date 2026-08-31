@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Eye,
   Plus,
@@ -17,6 +17,7 @@ import {
 import { AuthUser, HealthStatus, NtfyInfo } from '../types';
 import { copyTextToClipboard } from '../clipboard';
 import { ThemeMode } from '../theme';
+import { useClickOutside } from '../hooks/useClickOutside';
 
 interface HeaderProps {
   health: HealthStatus | null;
@@ -53,14 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
 
   // メニュー外をタップしたら閉じる（スマホでの誤操作防止）
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
 
   const topic = ntfy?.topic || user?.ntfyTopic || '';
 

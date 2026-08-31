@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, EyeOff, Layers } from 'lucide-react';
 import { WatchModel } from '../types';
 import { WatchCard } from './WatchCard';
+import { isUnviewed } from '../watchStatus';
 
 interface WatchListProps {
   watches: WatchModel[];
@@ -12,8 +13,6 @@ interface WatchListProps {
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
   onOpenCreateModal: () => void;
-  /** 監視ID -> 設定を保存した時刻。ファビコンのキャッシュを破棄するのに使う。 */
-  faviconVersions?: Record<string, number>;
 }
 
 type FilterTab = 'all' | 'changed' | 'error' | 'paused';
@@ -25,10 +24,6 @@ const TABS: { key: FilterTab; label: string }[] = [
   { key: 'paused', label: '停止中' },
 ];
 
-// BFF が付与する未読フラグを優先し、無い場合のみ直近の変更検知で判定する
-const isUnviewed = (w: WatchModel) =>
-  w.hasUnviewed ?? Boolean(w.lastChanged && w.lastChecked && w.lastChanged >= w.lastChecked - 60);
-
 export const WatchList: React.FC<WatchListProps> = ({
   watches,
   onTriggerCheck,
@@ -38,7 +33,6 @@ export const WatchList: React.FC<WatchListProps> = ({
   onDelete,
   onCopyTo,
   onOpenCreateModal,
-  faviconVersions,
 }) => {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
@@ -139,7 +133,6 @@ export const WatchList: React.FC<WatchListProps> = ({
               onEdit={onEdit}
               onDelete={onDelete}
               onCopyTo={onCopyTo}
-              faviconVersion={faviconVersions?.[watch.id]}
             />
           ))}
         </div>

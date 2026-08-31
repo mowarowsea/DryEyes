@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Copy,
@@ -11,6 +11,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { WatchModel } from '../types';
+import { unviewedCountOf } from '../watchStatus';
+import { useClickOutside } from '../hooks/useClickOutside';
 
 interface WatchCardProps {
   watch: WatchModel;
@@ -20,8 +22,6 @@ interface WatchCardProps {
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
-  /** 設定を保存した時刻。変わるとファビコンをブラウザキャッシュから読まずに取り直す。 */
-  faviconVersion?: number;
 }
 
 // 監視対象サイトのファビコン。
@@ -61,7 +61,6 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onEdit,
   onDelete,
   onCopyTo,
-  faviconVersion,
 }) => {
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -69,23 +68,11 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   const [faviconFailed, setFaviconFailed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // URL を差し替えた直後は、同じアイコンURLでもブラウザのキャッシュを避けて取り直す
-  const faviconUrl = useMemo(() => {
-    const base = faviconUrlOf(watch.url);
-    if (!base) return null;
-    return faviconVersion ? `${base}?v=${faviconVersion}` : base;
-  }, [watch.url, faviconVersion]);
+  // URL を差し替えると ?url= の中身も変わるので、ブラウザは自動で新しいアイコンを取りに行く
+  const faviconUrl = faviconUrlOf(watch.url);
   useEffect(() => setFaviconFailed(false), [faviconUrl]);
 
-  // メニュー外のタップで閉じる
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [menuOpen]);
+  useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
 
   const handleCheck = async () => {
     setMenuOpen(false);
@@ -108,14 +95,8 @@ export const WatchCard: React.FC<WatchCardProps> = ({
     }
   };
 
-  // 未読判定は BFF が返す hasUnviewed を使う。
-  // 古いレスポンス等で欠けている場合のみ、直近の変更検知にフォールバックする。
-  const hasUnviewed =
-    watch.hasUnviewed ??
-    Boolean(watch.lastChanged && watch.lastChecked && watch.lastChanged >= watch.lastChecked - 60);
-
-  // 最後に差分を見てから何回更新されたか。件数を持たない古い BFF では未読の有無だけ分かる。
-  const unviewedCount = watch.unviewedCount ?? (hasUnviewed ? 1 : 0);
+  // 未読の判定・件数は一覧のフィルタと同じ関数を使う（食い違うと件数とバッジがずれる）
+  const unviewedCount = unviewedCountOf(watch);
   const highlight = unviewedCount > 0 && !watch.paused;
 
   // ステータス（停止中・エラーのときだけ出し、通常時は行を使わない）

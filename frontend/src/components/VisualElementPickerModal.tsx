@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, MousePointerClick, Check, AlertCircle, RefreshCw, Layers } from 'lucide-react';
+import { useEscapeToClose } from './Modal';
 
 interface SelectedElementData {
   xpath: string;
@@ -28,6 +29,9 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const [targetMode, setTargetMode] = useState<'single' | 'similar'>('single');
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // 登録／設定変更モーダルの上に重なるが、Esc では手前のこのピッカーだけが閉じる
+  useEscapeToClose(isOpen, onClose);
 
   const sendHighlightToIframe = (xpath: string) => {
     const iframe = document.getElementById('dryeyes-preview-iframe') as HTMLIFrameElement | null;

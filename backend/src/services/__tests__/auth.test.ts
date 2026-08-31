@@ -101,6 +101,16 @@ describe('users', () => {
     expect(others.map((u) => u.username)).toEqual(['bob', 'carol']);
     expect(others.every((u) => !('passwordHash' in u))).toBe(true);
   });
+
+  it('should not expose other users ntfy topics to the copy-target list', () => {
+    const alice = verifyCredentials('alice', 'password');
+
+    // ntfy のトピック名は知っていれば誰でも購読・投稿できるため、
+    // 他ユーザーの一覧には載せない（載せると通知を盗み見・偽装できてしまう）
+    for (const other of listOtherUsers(alice.id)) {
+      expect(Object.keys(other).sort()).toEqual(['id', 'username']);
+    }
+  });
 });
 
 describe('watch ownership', () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { WatchList } from './components/WatchList';
 import { CreateWatchModal } from './components/CreateWatchModal';
@@ -29,14 +29,15 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
-  // 設定変更でURLを差し替えたときにファビコンを取り直すためのキャッシュ破棄キー（監視ID -> 保存時刻）
-  const [faviconVersions, setFaviconVersions] = useState<Record<string, number>>({});
   // ntfy 通知から開かれたときに、その監視の差分を出すための ID
   const [pendingWatchId, setPendingWatchId] = useState<string | null>(() => takePendingWatchId());
+  const toastTimer = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    // 続けてトーストを出したとき、前のタイマーで新しいメッセージが早く消されないようにする
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToastMessage(null), 3000);
   }, []);
 
   // テーマの反映。'system' のときは端末側の設定変更にも追従する。
@@ -154,8 +155,6 @@ export default function App() {
     { recheck }: EditWatchOptions
   ) => {
     await api.updateWatch(id, data);
-    // URL を変えた場合に古いサイトのファビコンが残らないよう、画像も取り直させる
-    setFaviconVersions((prev) => ({ ...prev, [id]: Date.now() }));
 
     if (recheck) {
       // 新しい設定での取得結果を、これまでの履歴に続けて積む
@@ -229,7 +228,6 @@ export default function App() {
           onOpenDiff={(w) => setDiffTargetWatch(w)}
           onEdit={(w) => setEditTargetWatch(w)}
           onCopyTo={(w) => setCopyTargetWatch(w)}
-          faviconVersions={faviconVersions}
           onDelete={handleDeleteWatch}
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
         />

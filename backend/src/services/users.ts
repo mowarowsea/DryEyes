@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypt
 import { JsonStore } from './store.js';
 import { config } from '../config.js';
 import { buildUserTopic } from './ntfyTopic.js';
-import { AuthStoreData, PublicUser, UserRecord } from '../types/index.js';
+import { AuthStoreData, PublicUser, UserRecord, UserSummary } from '../types/index.js';
 
 const store = new JsonStore<AuthStoreData>('auth.json', { users: [], sessions: [] });
 
@@ -59,12 +59,14 @@ export function findPublicUserById(id: string): PublicUser | null {
   return user ? toPublicUser(user) : null;
 }
 
-// コピー先の候補一覧（自分以外の全ユーザー）。コンボボックス/ボタンの選択肢に使う。
-export function listOtherUsers(excludeUserId: string): PublicUser[] {
+// コピー先の候補一覧（自分以外の全ユーザー）。ボタンの選択肢に使う。
+// 画面に必要なのは id と表示名だけ。ntfyTopic を含めると、
+// 他ユーザー宛ての通知を誰でも購読・偽装できてしまうため返さない。
+export function listOtherUsers(excludeUserId: string): UserSummary[] {
   return store
     .get()
     .users.filter((u) => u.id !== excludeUserId)
-    .map(toPublicUser)
+    .map((u) => ({ id: u.id, username: u.username }))
     .sort((a, b) => a.username.localeCompare(b.username));
 }
 

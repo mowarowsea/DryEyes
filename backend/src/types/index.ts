@@ -71,12 +71,20 @@ export interface SessionRecord {
   expiresAt: string;
 }
 
-// クライアントへ返す表現（passwordHash は絶対に含めない）
+// 本人へ返す表現（passwordHash は絶対に含めない）
 export interface PublicUser {
   id: string;
   username: string;
   ntfyTopic: string;
   createdAt: string;
+}
+
+// 他人へ見せる表現。
+// ntfy のトピックは「名前を知っていれば誰でも購読・投稿できる」実質的な合鍵なので、
+// 他ユーザーの一覧にはトピック名も登録日時も載せない。
+export interface UserSummary {
+  id: string;
+  username: string;
 }
 
 export interface AuthStoreData {

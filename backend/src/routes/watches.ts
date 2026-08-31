@@ -19,6 +19,11 @@ export const watchesRouter = Router();
 // 初回スナップショットしか無いときに返す現在値のプレビュー行数
 const INITIAL_PREVIEW_LINES = 30;
 
+// changedetection.io が返したバリデーションエラー（4xx）はそのままクライアントへ伝え、
+// それ以外（接続不能など DryEyes 側の都合）は 500 に丸める
+const upstreamStatus = (err: any): number =>
+  err?.status >= 400 && err.status < 500 ? err.status : 500;
+
 // 監視は必ずログインユーザーに紐づく
 watchesRouter.use(requireAuth);
 
@@ -76,9 +81,7 @@ watchesRouter.post('/', async (req, res) => {
     assignOwner(newWatch.id, req.user!.id);
     res.status(201).json(newWatch);
   } catch (err: any) {
-    // changedetection.io が返したバリデーションエラーはそのままクライアントへ伝える
-    const status = err.status >= 400 && err.status < 500 ? err.status : 500;
-    res.status(status).json({ error: 'Failed to create watch', message: err.message });
+    res.status(upstreamStatus(err)).json({ error: 'Failed to create watch', message: err.message });
   }
 });
 
@@ -116,8 +119,7 @@ watchesRouter.post('/:id/copy-to', async (req, res) => {
     assignOwner(copy.id, target.id);
     res.status(201).json({ success: true, title: copy.title, username: target.username });
   } catch (err: any) {
-    const status = err.status >= 400 && err.status < 500 ? err.status : 500;
-    res.status(status).json({ error: 'Failed to copy watch', message: err.message });
+    res.status(upstreamStatus(err)).json({ error: 'Failed to copy watch', message: err.message });
   }
 });
 
@@ -129,8 +131,7 @@ watchesRouter.patch('/:id', async (req, res) => {
     const updated = await changedetectionClient.updateWatch(req.params.id, dto, req.user!.ntfyTopic);
     res.json(withViewState(updated, req.user!.id));
   } catch (err: any) {
-    const status = err.status >= 400 && err.status < 500 ? err.status : 500;
-    res.status(status).json({ error: 'Failed to update watch', message: err.message });
+    res.status(upstreamStatus(err)).json({ error: 'Failed to update watch', message: err.message });
   }
 });
 
