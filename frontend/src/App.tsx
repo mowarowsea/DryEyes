@@ -3,7 +3,6 @@ import { Header } from './components/Header';
 import { WatchList } from './components/WatchList';
 import { CreateWatchModal } from './components/CreateWatchModal';
 import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
-import { ShareWatchModal } from './components/ShareWatchModal';
 import { DiffModal } from './components/DiffModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
@@ -24,7 +23,6 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editTargetWatch, setEditTargetWatch] = useState<WatchModel | null>(null);
-  const [shareTargetWatch, setShareTargetWatch] = useState<WatchModel | null>(null);
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
@@ -223,7 +221,6 @@ export default function App() {
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
           onEdit={(w) => setEditTargetWatch(w)}
-          onShare={(w) => setShareTargetWatch(w)}
           faviconVersions={faviconVersions}
           onDelete={handleDeleteWatch}
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
@@ -244,12 +241,6 @@ export default function App() {
         userTopic={userTopic}
         onClose={() => setEditTargetWatch(null)}
         onSubmit={handleUpdateWatch}
-      />
-
-      <ShareWatchModal
-        watch={shareTargetWatch}
-        isOpen={!!shareTargetWatch}
-        onClose={() => setShareTargetWatch(null)}
       />
 
       <DiffModal

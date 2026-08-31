@@ -22,13 +22,6 @@ export interface WatchModel {
   hasUnviewed?: boolean; // まだ確認していない変更があるか
   unviewedCount?: number; // 最後に差分を確認してから更新が検知された回数
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
-  isOwner?: boolean; // このユーザーが所有者か（false なら共有されて見えているだけ）
-}
-
-// 監視の共有先ユーザー
-export interface SharedUser {
-  id: string;
-  username: string;
 }
 
 export interface CreateWatchDto {

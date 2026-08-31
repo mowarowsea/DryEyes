@@ -40,7 +40,6 @@ describe('WatchCard', () => {
         onOpenDiff={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
-        onShare={vi.fn()}
         {...handlers}
       />
     );
@@ -132,7 +131,6 @@ describe('WatchCard', () => {
         onOpenDiff={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
-        onShare={vi.fn()}
       />
     );
 
@@ -149,29 +147,6 @@ describe('WatchCard', () => {
     fireEvent.click(screen.getByText('設定を変更'));
 
     expect(handleEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
-  });
-
-  it('opens the share modal from the option menu', () => {
-    const handleShare = vi.fn();
-    renderCard({}, { onShare: handleShare });
-
-    openMenu();
-    fireEvent.click(screen.getByText('別ユーザへ共有'));
-
-    expect(handleShare).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
-  });
-
-  it('hides owner-only actions and shows a shared badge for watches shared by someone else', () => {
-    renderCard({ isOwner: false });
-
-    expect(screen.getByText('共有中')).toBeInTheDocument();
-
-    openMenu();
-    expect(screen.getByText('今すぐチェック')).toBeInTheDocument();
-    expect(screen.queryByText('監視を停止')).not.toBeInTheDocument();
-    expect(screen.queryByText('設定を変更')).not.toBeInTheDocument();
-    expect(screen.queryByText('別ユーザへ共有')).not.toBeInTheDocument();
-    expect(screen.queryByText('削除')).not.toBeInTheDocument();
   });
 
   it('deletes from the option menu after confirmation', () => {

@@ -6,7 +6,6 @@ import {
   AuthSession,
   MeResponse,
   WatchDiff,
-  SharedUser,
 } from '../types';
 
 const API_BASE = '/api';
@@ -188,26 +187,5 @@ export const api = {
   async markViewed(id: string): Promise<void> {
     const res = await request(`/watches/${id}/viewed`, { method: 'POST' });
     if (!res.ok) throw new Error(await errorMessage(res, '既読の記録に失敗しました'));
-  },
-
-  // --- 共有 -------------------------------------------------------------
-  async getShares(id: string): Promise<SharedUser[]> {
-    const res = await request(`/watches/${id}/shares`);
-    if (!res.ok) throw new Error(await errorMessage(res, '共有先の取得に失敗しました'));
-    return res.json();
-  },
-
-  async shareWatch(id: string, username: string): Promise<SharedUser[]> {
-    const res = await request(`/watches/${id}/shares`, {
-      method: 'POST',
-      body: JSON.stringify({ username }),
-    });
-    if (!res.ok) throw new Error(await errorMessage(res, '共有に失敗しました'));
-    return res.json();
-  },
-
-  async unshareWatch(id: string, userId: string): Promise<void> {
-    const res = await request(`/watches/${id}/shares/${userId}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(await errorMessage(res, '共有の解除に失敗しました'));
   },
 };
