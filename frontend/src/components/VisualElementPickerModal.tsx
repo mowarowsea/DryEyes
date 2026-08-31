@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, MousePointerClick, Check, AlertCircle, RefreshCw, Layers } from 'lucide-react';
 import { useEscapeToClose } from './Modal';
+import { apiUrl } from '../api';
 
 interface SelectedElementData {
   xpath: string;
@@ -59,7 +60,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   if (!isOpen) return null;
 
-  const proxyUrl = `/api/proxy/page?url=${encodeURIComponent(targetUrl)}`;
+  const proxyUrl = apiUrl(`/proxy/page?url=${encodeURIComponent(targetUrl)}`);
 
   const handleToggleSimilar = (toSimilar: boolean) => {
     if (!selectedElement) return;

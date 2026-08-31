@@ -109,10 +109,29 @@ DryEyes は、指定したWebページを定期的に監視し、**ユーザー�
   空の登録モーダルを直接開ける。
 - **前提**: 共有シートへの登録は **インストール済み PWA でのみ** 有効で、
   インストールには secure context（HTTPS）が必要。
-  `http://<LAN IP>:3010` では PWA 化されないため、Tailscale を使う場合は
-  `tailscale serve --bg 3010` などで HTTPS の `https://<machine>.<tailnet>.ts.net` を用意する
-  （Vite の `server.allowedHosts` に `.ts.net` を許可済み）。
-  HTTPS 化した場合は、通知タップ先を合わせるため `APP_BASE_URL` も同じ URL にする。
+  `http://<LAN IP>:3010` では PWA 化されないため、後述のサブパス配信で HTTPS を用意する。
+
+### 2.5 配信パス（サブパス配信）
+
+Tailscale の 1 ホストに DryEyes 以外のツールも並べられるよう、画面はサブパス配下に置く。
+
+- 既定の配信パスは `/DryEyes/`（`vite.config.ts` の `base`。`BASE_PATH=/` でルート直下にもできる）。
+- API・iframe プレビュー・ファビコンの URL は、すべて `import.meta.env.BASE_URL` を基準に組み立てる
+  （`apiUrl()`）。BFF 自身は従来どおり `/api` で待ち受け、Vite の proxy が base を取り除いて転送する。
+- `manifest.webmanifest` の `start_url` / `scope` / `share_target.action` / アイコンはすべて相対 URL にする。
+  manifest 自身の URL が基準になるため、どのパスに置いても PWA のスコープが配信パスに一致する。
+- Service Worker も配信パス配下（`<base>sw.js`）に登録し、スコープをその配下に閉じる。
+- Tailscale の公開設定は次のとおり。`--set-path` はプロキシ時にパスを取り除くため、
+  転送先にも同じパスを付けて打ち消す（そうしないと Vite に base なしで届き、
+  HTML 内のアセット参照がルート直下を指して 404 になる）。
+
+  ```
+  tailscale serve --bg --set-path=/DryEyes http://127.0.0.1:3010/DryEyes
+  ```
+
+- `APP_BASE_URL` も同じサブパス込みの URL にする
+  （通知タップ先 `<APP_BASE_URL>/?watch=<uuid>` と、通知のファビコン URL がこれを基準に組み立てられるため）。
+- ルート直下 (`/`) へのアクセスは Vite が配信パスへリダイレクトする。
 
 ## 3. BFF API 仕様書
 

@@ -13,6 +13,7 @@ import {
 import { WatchModel } from '../types';
 import { unviewedCountOf } from '../watchStatus';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { apiUrl } from '../api';
 
 interface WatchCardProps {
   watch: WatchModel;
@@ -33,7 +34,7 @@ const faviconUrlOf = (url: string): string | null => {
   } catch {
     return null;
   }
-  return `/api/proxy/favicon?url=${encodeURIComponent(url)}`;
+  return apiUrl(`/proxy/favicon?url=${encodeURIComponent(url)}`);
 };
 
 // 時刻フォーマット

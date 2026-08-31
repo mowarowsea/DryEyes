@@ -5,12 +5,14 @@
 // キャッシュは意図的にほぼ持たない。監視状況は常に最新を見たい画面なので、
 // 古い HTML や JS を掴んで「更新したのに変わらない」状態になる方が困る。
 const OFFLINE_CACHE = 'dryeyes-shell-v1';
+// 配信パス（ルート直下とは限らない。例: /DryEyes/）。
+const SHELL_URL = new URL('./', self.registration.scope).pathname;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(OFFLINE_CACHE)
-      .then((cache) => cache.add(new Request('/', { cache: 'reload' })))
+      .then((cache) => cache.add(new Request(SHELL_URL, { cache: 'reload' })))
       .catch(() => undefined)
   );
   self.skipWaiting();
@@ -33,7 +35,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request).catch(async () => {
       // 圏外のときだけ、インストール時に保存しておいたシェルを返す
-      const cached = await caches.match('/', { ignoreSearch: true });
+      const cached = await caches.match(SHELL_URL, { ignoreSearch: true });
       return (
         cached ||
         new Response('<h1>DryEyes</h1><p>オフラインです。</p>', {

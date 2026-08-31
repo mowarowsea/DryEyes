@@ -49,6 +49,9 @@ DryEyes は、Webクローリング・ブラウザ操作・差分検出などの
     `?shared=<URL>` で開かれると登録モーダルが URL 入力済みの状態で立ち上がる。
     スマホでの登録は「URL を打ち直す」手間が支配的なため、その往復をなくすのが狙い。
     共有シートはインストール済み PWA でしか出ないため、HTTPS 経由での配信が前提になる。
+  - **サブパス配信**。Tailscale の 1 ホストに他のツールも並べられるよう、画面は `/DryEyes/` 配下に置く
+    （`vite.config.ts` の `base`）。API・iframe・ファビコンの URL は `import.meta.env.BASE_URL` を
+    基準に組み立て、manifest と Service Worker も相対パス／配信パス配下に閉じる。
 - **原則**:
   - `changedetection.io` の内部仕様や複雑なパラメータを直接扱わず、DryEyes BFF のシンプルなモデルのみを操作する。
 

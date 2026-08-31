@@ -9,7 +9,14 @@ import {
   PublicUser,
 } from '../types';
 
-const API_BASE = '/api';
+// 画面はサブパス配下（例: /DryEyes/）に置かれることがあるため、API の URL も
+// 配信パスを基準に組み立てる。import.meta.env.BASE_URL は必ず末尾スラッシュ付き。
+const API_BASE = `${import.meta.env.BASE_URL}api`;
+
+// 画面から直接 URL を組み立てたい箇所（iframe やファビコンの img）向け。
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
 const TOKEN_KEY = 'dryeyes.token';
 
 // ログイントークンはブラウザに保持し、次回アクセス時の自動再ログインに使う。
