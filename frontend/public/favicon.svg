@@ -1,20 +1,42 @@
-<!-- DryEyes のアイコン原本。ずっと見張っていても威圧感が出ないよう、
-     視線を正面から少し外し、瞳を大きめ + ハイライト入りにしている。
+<!-- DryEyes のアイコン原本。見張りすぎて乾いた目、というモチーフの線画。
+     - 半目 + 見下ろした瞳で「ずっと見ている」割に力を抜いた表情にしている
+     - 右目から垂れているのは、乾き対策の目薬のしずく（プロダクト名の由来）
      PNG 各サイズ（PWA / apple-touch / png フォールバック）は
-     scripts/render-icons.py がこの形をそのまま描き出す。 -->
+     scripts/render-icons.sh がこの SVG から書き出す。 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DryEyes">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="plateFill" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#6366f1"/>
       <stop offset="1" stop-color="#4338ca"/>
     </linearGradient>
-    <clipPath id="lens"><path d="M88 256 C 156 132 214 112 256 112 C 298 112 356 132 424 256 C 356 340 298 360 256 360 C 214 360 156 340 88 256 Z"/></clipPath>
+    <clipPath id="eyeL"><ellipse cx="166" cy="222" rx="94" ry="128"/></clipPath>
+    <clipPath id="eyeR"><ellipse cx="346" cy="222" rx="94" ry="128"/></clipPath>
+    <!-- まぶたの線より下だけを残すための半平面（瞳がまぶたから飛び出さないように） -->
+    <clipPath id="underL"><polygon points="-100,233 600,88 600,600 -100,600"/></clipPath>
+    <clipPath id="underR"><polygon points="-100,270 600,124 600,600 -100,600"/></clipPath>
   </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <g transform="rotate(-6 256 240)">
-    <path d="M88 256 C 156 132 214 112 256 112 C 298 112 356 132 424 256 C 356 340 298 360 256 360 C 214 360 156 340 88 256 Z" fill="#ffffff" stroke="#ffffff" stroke-width="26" stroke-linejoin="round"/>
-    <g clip-path="url(#lens)"><circle cx="238" cy="240" r="94" fill="#4338ca"/></g>
-    <circle cx="212" cy="210" r="30" fill="#ffffff"/>
-    <circle cx="266" cy="270" r="13" fill="#ffffff" fill-opacity="0.5"/>
+
+  <rect id="plate" width="512" height="512" rx="112" fill="url(#plateFill)"/>
+
+  <g id="art">
+    <!-- しずくと右目は輪郭がつながって見えてほしい。そこで
+         「太い線で描く → 内側を塗り直して線を半分に戻す」順序で重ねている。 -->
+    <ellipse cx="166" cy="222" rx="94" ry="128" fill="#ffffff"/>
+    <ellipse cx="346" cy="222" rx="94" ry="128" fill="#ffffff"/>
+    <path d="M322 292 L322 388 A24 24 0 0 0 370 388 L370 292 Z"
+          fill="#ffffff" stroke="#1e1b4b" stroke-width="44" stroke-linejoin="round"/>
+    <ellipse cx="346" cy="222" rx="94" ry="128" fill="#ffffff"/>
+    <ellipse cx="166" cy="222" rx="94" ry="128" fill="none" stroke="#1e1b4b" stroke-width="22"/>
+    <ellipse cx="346" cy="222" rx="94" ry="128" fill="none" stroke="#1e1b4b" stroke-width="22"/>
+    <path d="M322 292 L322 388 A24 24 0 0 0 370 388 L370 292 Z" fill="#ffffff"/>
+
+    <g clip-path="url(#eyeL)">
+      <g clip-path="url(#underL)"><ellipse cx="184" cy="252" rx="45" ry="70" fill="#1e1b4b"/></g>
+      <line x1="60" y1="200" x2="300" y2="150" stroke="#1e1b4b" stroke-width="22"/>
+    </g>
+    <g clip-path="url(#eyeR)">
+      <g clip-path="url(#underR)"><ellipse cx="332" cy="252" rx="45" ry="70" fill="#1e1b4b"/></g>
+      <line x1="236" y1="200" x2="476" y2="150" stroke="#1e1b4b" stroke-width="22"/>
+    </g>
   </g>
 </svg>
