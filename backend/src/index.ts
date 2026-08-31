@@ -3,6 +3,7 @@ import cors from 'cors';
 import { config } from './config.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
+import { usersRouter } from './routes/users.js';
 import { watchesRouter } from './routes/watches.js';
 import { proxyRouter } from './routes/proxy.js';
 import { publicWatchesRouter } from './routes/publicFavicon.js';
@@ -21,6 +22,7 @@ app.use(express.json());
 // API Routes
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/users', usersRouter);
 app.use('/api/watches', watchesRouter);
 app.use('/api/proxy', proxyRouter);
 // ntfy のクライアントが通知アイコンを取りに来る公開エンドポイント（認証なし）

@@ -187,8 +187,8 @@ export default function App() {
     fetchData();
   };
 
-  const handleCopyWatchTo = async (id: string, username: string) => {
-    const result = await api.copyWatchTo(id, username);
+  const handleCopyWatchTo = async (id: string, userId: string) => {
+    const result = await api.copyWatchTo(id, userId);
     showToast(`「${result.title}」を ${result.username} 用にコピーしました`);
   };
 

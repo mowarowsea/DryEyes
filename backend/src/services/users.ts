@@ -53,10 +53,19 @@ export function createUser(username: string, password: string): UserRecord {
   return user;
 }
 
-// 監視のコピー先を指定するときのユーザー名検索。存在有無を返すだけで passwordHash は含めない。
-export function findPublicUserByUsername(username: string): PublicUser | null {
-  const user = findByUsername((username || '').trim());
+// コピー先の選択肢を確定するとき、フロントが選んだ id から引き直す
+export function findPublicUserById(id: string): PublicUser | null {
+  const user = store.get().users.find((u) => u.id === id);
   return user ? toPublicUser(user) : null;
+}
+
+// コピー先の候補一覧（自分以外の全ユーザー）。コンボボックス/ボタンの選択肢に使う。
+export function listOtherUsers(excludeUserId: string): PublicUser[] {
+  return store
+    .get()
+    .users.filter((u) => u.id !== excludeUserId)
+    .map(toPublicUser)
+    .sort((a, b) => a.username.localeCompare(b.username));
 }
 
 export function verifyCredentials(username: string, password: string): UserRecord {

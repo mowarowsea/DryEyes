@@ -40,6 +40,12 @@ export interface WatchHistoryItem {
   snapshotId: string;
 }
 
+// コピー先ユーザーの選択肢
+export interface PublicUser {
+  id: string;
+  username: string;
+}
+
 export interface HealthStatus {
   status: string;
   timestamp: string;

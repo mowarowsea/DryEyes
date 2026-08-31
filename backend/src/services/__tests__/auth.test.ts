@@ -8,8 +8,18 @@ import path from 'node:path';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dryeyes-auth-test-'));
 process.env.DATA_DIR = tmpDir;
 
-const { createUser, verifyCredentials, createSession, resolveSession, revokeSession, countUsers, toPublicUser, AuthError } =
-  await import('../users.js');
+const {
+  createUser,
+  verifyCredentials,
+  createSession,
+  resolveSession,
+  revokeSession,
+  countUsers,
+  toPublicUser,
+  findPublicUserById,
+  listOtherUsers,
+  AuthError,
+} = await import('../users.js');
 const { assignOwner, isOwnedBy, releaseOwner, claimUnowned, pruneMissing, getOwner } =
   await import('../ownership.js');
 
@@ -74,6 +84,22 @@ describe('users', () => {
     const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, 'auth.json'), 'utf-8'));
     expect(saved.users.map((u: any) => u.username)).toEqual(['alice', 'bob', 'carol']);
     expect(saved.users[0].passwordHash).toMatch(/^scrypt\$/);
+  });
+
+  it('should look up a public user by id without leaking the password hash', () => {
+    const alice = verifyCredentials('alice', 'password');
+
+    expect(findPublicUserById(alice.id)).not.toHaveProperty('passwordHash');
+    expect(findPublicUserById(alice.id)?.username).toBe('alice');
+    expect(findPublicUserById('no-such-id')).toBeNull();
+  });
+
+  it('should list every other user as copy-target candidates, sorted by name', () => {
+    const alice = verifyCredentials('alice', 'password');
+    const others = listOtherUsers(alice.id);
+
+    expect(others.map((u) => u.username)).toEqual(['bob', 'carol']);
+    expect(others.every((u) => !('passwordHash' in u))).toBe(true);
   });
 });
 

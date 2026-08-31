@@ -1,39 +1,47 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, ShieldAlert, Loader2 } from 'lucide-react';
-import { WatchModel } from '../types';
+import { X, Copy, ShieldAlert, Loader2, UserRound } from 'lucide-react';
+import { WatchModel, PublicUser } from '../types';
+import { api } from '../api';
 
 interface CopyWatchModalProps {
   watch: WatchModel | null;
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (id: string, username: string) => Promise<void>;
+  onSubmit: (id: string, userId: string) => Promise<void>;
 }
 
 export const CopyWatchModal: React.FC<CopyWatchModalProps> = ({ watch, isOpen, onClose, onSubmit }) => {
-  const [username, setUsername] = useState('');
+  const [users, setUsers] = useState<PublicUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 開くたびに入力状態をリセットする
+  // 開くたびに、コピー先に選べるユーザー一覧を取得し直す
   useEffect(() => {
     if (!isOpen) return;
-    setUsername('');
+    setSelectedUserId('');
     setError(null);
+    setLoadingUsers(true);
+    api
+      .getUsers()
+      .then(setUsers)
+      .catch((err: any) => setError(err.message || 'ユーザー一覧の取得に失敗しました'))
+      .finally(() => setLoadingUsers(false));
   }, [isOpen, watch]);
 
   if (!isOpen || !watch) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const name = username.trim();
-    if (!name) {
-      setError('コピー先のユーザー名を入力してください');
+    if (!selectedUserId) {
+      setError('コピー先のユーザーを選択してください');
       return;
     }
     try {
       setSubmitting(true);
       setError(null);
-      await onSubmit(watch.id, name);
+      await onSubmit(watch.id, selectedUserId);
       onClose();
     } catch (err: any) {
       setError(err.message || 'コピーの作成に失敗しました');
@@ -41,9 +49,6 @@ export const CopyWatchModal: React.FC<CopyWatchModalProps> = ({ watch, isOpen, o
       setSubmitting(false);
     }
   };
-
-  const inputClass =
-    'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
@@ -73,21 +78,38 @@ export const CopyWatchModal: React.FC<CopyWatchModalProps> = ({ watch, isOpen, o
 
         <form onSubmit={handleSubmit} className="p-5 space-y-3">
           <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-            同じURL・チェック間隔・監視/除外設定のまま、指定したユーザーの所有物として新しい監視を作成します。
+            同じURL・チェック間隔・監視/除外設定のまま、選んだユーザーの所有物として新しい監視を作成します。
             通知は先方専用のトピックへ届き、以後は互いに独立して管理されます。
           </p>
+
           <div>
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 block">
-              コピー先のユーザー名
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1.5 block">
+              コピー先のユーザー
             </label>
-            <input
-              type="text"
-              autoFocus
-              placeholder="ユーザー名"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className={inputClass}
-            />
+
+            {loadingUsers ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500 py-2">読み込み中...</p>
+            ) : users.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500 py-2">コピーできるユーザーがいません</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => setSelectedUserId(u.id)}
+                    className={`px-3 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${
+                      selectedUserId === u.id
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    <UserRound className="w-3.5 h-3.5" />
+                    {u.username}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="pt-2 flex items-center justify-end gap-2">
@@ -101,7 +123,7 @@ export const CopyWatchModal: React.FC<CopyWatchModalProps> = ({ watch, isOpen, o
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !selectedUserId}
               className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center gap-1.5"
             >
               {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5" />}

@@ -6,6 +6,7 @@ import {
   AuthSession,
   MeResponse,
   WatchDiff,
+  PublicUser,
 } from '../types';
 
 const API_BASE = '/api';
@@ -165,11 +166,18 @@ export const api = {
     if (!res.ok) throw new Error('Failed to delete watch');
   },
 
+  // コピー先の選択肢（コンボボックス/ボタン）に使う、自分以外のユーザー一覧
+  async getUsers(): Promise<PublicUser[]> {
+    const res = await request('/users');
+    if (!res.ok) throw new Error('Failed to fetch users');
+    return res.json();
+  },
+
   // 同じ設定のまま、別ユーザーの所有物としてコピーを作成する
-  async copyWatchTo(id: string, username: string): Promise<{ title: string; username: string }> {
+  async copyWatchTo(id: string, userId: string): Promise<{ title: string; username: string }> {
     const res = await request(`/watches/${id}/copy-to`, {
       method: 'POST',
-      body: JSON.stringify({ username }),
+      body: JSON.stringify({ userId }),
     });
     if (!res.ok) throw new Error(await errorMessage(res, 'コピーの作成に失敗しました'));
     return res.json();

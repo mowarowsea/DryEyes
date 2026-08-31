@@ -1,7 +1,7 @@
 import { Response, Router } from 'express';
 import { changedetectionClient } from '../services/changedetection.js';
 import { assignOwner, isOwnedBy, pruneMissing, releaseOwner } from '../services/ownership.js';
-import { findPublicUserByUsername } from '../services/users.js';
+import { findPublicUserById } from '../services/users.js';
 import {
   clearViewStates,
   countUnviewedChanges,
@@ -87,14 +87,14 @@ watchesRouter.post('/:id/copy-to', async (req, res) => {
   const watchId = req.params.id;
   if (!ensureOwned(watchId, req.user!.id, res)) return;
 
-  const username = String(req.body?.username || '').trim();
-  if (!username) {
-    return res.status(400).json({ error: 'Invalid target', message: 'コピー先のユーザー名を入力してください' });
+  const userId = String(req.body?.userId || '').trim();
+  if (!userId) {
+    return res.status(400).json({ error: 'Invalid target', message: 'コピー先のユーザーを選択してください' });
   }
 
-  const target = findPublicUserByUsername(username);
+  const target = findPublicUserById(userId);
   if (!target) {
-    return res.status(404).json({ error: 'Not found', message: 'そのユーザー名は見つかりません' });
+    return res.status(404).json({ error: 'Not found', message: 'そのユーザーは見つかりません' });
   }
   if (target.id === req.user!.id) {
     return res.status(400).json({ error: 'Invalid target', message: '自分自身へはコピーできません' });
