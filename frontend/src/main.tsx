@@ -8,3 +8,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <App />
   </React.StrictMode>
 );
+
+// PWA としてインストールできるようにする。共有シートから登録する導線がこれに乗る。
+// http://<LAN IP> のような secure context でない環境では serviceWorker 自体が生えないため、
+// 登録は best-effort に留め、失敗しても通常の Web アプリとして動かす。
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* 非 secure context・未対応ブラウザではインストール導線が出ないだけ */
+    });
+  });
+}

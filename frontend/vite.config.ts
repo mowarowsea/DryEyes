@@ -7,6 +7,9 @@ export default defineConfig({
   server: {
     port: 3010,
     host: true,
+    // Tailscale 越しに開くと Host ヘッダが <machine>.<tailnet>.ts.net になる。
+    // Vite は既定で未知のホストを拒否するため、tailnet のドメインを許可しておく。
+    allowedHosts: ['.ts.net'],
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

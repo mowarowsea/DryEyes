@@ -46,3 +46,26 @@ function legacyCopy(text: string): boolean {
     document.body.removeChild(textarea);
   }
 }
+
+// クリップボードの読み取りは書き込みと違い、フォールバック手段がない
+// （execCommand('paste') はどのブラウザでも封じられている）。
+// secure context 以外では貼り付けボタン自体を出さないよう、可否を返す。
+export function canReadClipboard(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.isSecureContext &&
+    typeof navigator.clipboard?.readText === 'function'
+  );
+}
+
+export async function readTextFromClipboard(): Promise<string | null> {
+  if (!canReadClipboard()) return null;
+
+  try {
+    const text = await navigator.clipboard.readText();
+    return text.trim() || null;
+  } catch {
+    // 権限を拒否された場合など。手入力に任せる。
+    return null;
+  }
+}

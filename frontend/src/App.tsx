@@ -8,7 +8,7 @@ import { DiffModal } from './components/DiffModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
-import { takePendingWatchId } from './deepLink';
+import { takePendingWatchId, takeCreateIntent } from './deepLink';
 import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
 
 // booting: 保存済みトークンの検証中 / anon: 未ログイン / ready: ログイン済み
@@ -31,6 +31,10 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
   // ntfy 通知から開かれたときに、その監視の差分を出すための ID
   const [pendingWatchId, setPendingWatchId] = useState<string | null>(() => takePendingWatchId());
+  // 共有シート（?url=…）やホーム画面のショートカット（?add=1）から開かれたときの登録内容。
+  // ログイン前に共有された場合もあるため、ログインが済むまで持ち越す。
+  const [sharedUrl, setSharedUrl] = useState<string | null>(null);
+  const [pendingCreateIntent, setPendingCreateIntent] = useState(() => takeCreateIntent());
   const toastTimer = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -115,6 +119,15 @@ export default function App() {
     }
     setPendingWatchId(null);
   }, [pendingWatchId, authState, watchesLoaded, watches, showToast]);
+
+  // 共有から開かれたときは、ログインが済み次第そのまま登録モーダルを出す
+  useEffect(() => {
+    if (!pendingCreateIntent || authState !== 'ready') return;
+
+    setSharedUrl(pendingCreateIntent.url);
+    setIsCreateModalOpen(true);
+    setPendingCreateIntent(null);
+  }, [pendingCreateIntent, authState]);
 
   useEffect(() => {
     if (authState !== 'ready') return;
@@ -236,7 +249,11 @@ export default function App() {
       {/* モーダル */}
       <CreateWatchModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        initialUrl={sharedUrl}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setSharedUrl(null);
+        }}
         onSubmit={handleCreateWatch}
         userTopic={userTopic}
       />

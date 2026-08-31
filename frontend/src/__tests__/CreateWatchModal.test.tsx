@@ -10,13 +10,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const renderModal = (onClose = vi.fn(), onSubmit = vi.fn().mockResolvedValue(undefined)) => {
+const renderModal = (
+  onClose = vi.fn(),
+  onSubmit = vi.fn().mockResolvedValue(undefined),
+  initialUrl: string | null = null
+) => {
   render(
     <CreateWatchModal
       isOpen
       onClose={onClose}
       onSubmit={onSubmit}
       userTopic="dryeyes-mowa-94cf11"
+      initialUrl={initialUrl}
     />
   );
   return { onClose, onSubmit };
@@ -105,6 +110,37 @@ describe('CreateWatchModal', () => {
         title: 'ぐらんぶる',
         checkIntervalMinutes: 60,
         includeFilters: ['//*[@id="list"]'],
+      })
+    );
+  });
+
+  // スマホの共有シートから開かれたときの導線
+  it('prefills the URL shared from the phone and registers the whole page without the picker', async () => {
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    const { onSubmit } = renderModal(vi.fn(), vi.fn().mockResolvedValue(undefined), 'https://example.com/manga');
+
+    expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
+
+    // 要素選択をとばして登録画面へ直行する
+    fireEvent.click(screen.getByRole('button', { name: /ページ全体を見張る/ }));
+
+    await waitFor(() => expect(screen.getByText('登録オプションの設定')).toBeInTheDocument());
+    expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue('ぐらんぶる')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /監視を登録する/ }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    // ページ全体が対象なので、絞り込みのフィルタは付かない
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://example.com/manga',
+        title: 'ぐらんぶる',
+        includeFilters: [],
+        subtractedFilters: [],
       })
     );
   });
