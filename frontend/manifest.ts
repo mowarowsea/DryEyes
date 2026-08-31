@@ -1,0 +1,45 @@
+// PWA マニフェスト。配信パス (base) が /DryEyes/ のようにサブパスになるため、
+// URL はすべて base 込みの絶対パスで書き出す。
+//
+// 相対 URL（"./" など）でも仕様上は manifest の URL 基準で解決されるが、
+// share_target の登録は Chrome / WebAPK 側の解釈に委ねる部分が大きいので、
+// 曖昧さが残らないよう配信時に埋め込んでしまう。
+export function buildManifest(base: string): Record<string, unknown> {
+  return {
+    name: 'DryEyes — Web Watcher',
+    short_name: 'DryEyes',
+    description: '見張り続けるとドライアイになるWebページを、代わりに見張る。',
+    start_url: base,
+    scope: base,
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#f1f5f9',
+    theme_color: '#4f46e5',
+    lang: 'ja',
+    icons: [
+      { src: `${base}icons/icon-192.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: `${base}icons/icon-512.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+      {
+        src: `${base}icons/icon-maskable-512.png`,
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
+      },
+    ],
+    // ブラウザの共有シートから URL を受け取る口。
+    // Vite の開発サーバーが `?url` を内部用クエリとして横取りするため、受け皿は `shared`。
+    share_target: {
+      action: base,
+      method: 'GET',
+      params: { title: 'title', text: 'text', url: 'shared' },
+    },
+    shortcuts: [
+      {
+        name: '監視を追加',
+        short_name: '追加',
+        url: `${base}?add=1`,
+        icons: [{ src: `${base}icons/icon-192.png`, sizes: '192x192', type: 'image/png' }],
+      },
+    ],
+  };
+}
