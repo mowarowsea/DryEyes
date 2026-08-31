@@ -115,16 +115,49 @@ describe('CreateWatchModal', () => {
   });
 
   // スマホの共有シートから開かれたときの導線
-  it('prefills the URL shared from the phone and registers the whole page without the picker', async () => {
+  it('jumps straight to the element picker with the URL shared from the phone', async () => {
     vi.spyOn(api, 'getPageInfo').mockResolvedValue({
       title: 'ぐらんぶる',
       url: 'https://example.com/manga',
     });
-    const { onSubmit } = renderModal(vi.fn(), vi.fn().mockResolvedValue(undefined), 'https://example.com/manga');
+    renderModal(vi.fn(), vi.fn().mockResolvedValue(undefined), 'https://example.com/manga');
 
+    // URL 入力も「次へ」も踏まずに要素の選択まで進む
+    await waitFor(() => expect(screen.getByTitle('Page Preview')).toBeInTheDocument());
+    expect(screen.getByText('Step 2/3')).toBeInTheDocument();
     expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
+  });
 
-    // 要素選択をとばして登録画面へ直行する
+  it('does not reopen the picker after the user closes it', async () => {
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    const { onClose } = renderModal(
+      vi.fn(),
+      vi.fn().mockResolvedValue(undefined),
+      'https://example.com/manga'
+    );
+
+    await waitFor(() => expect(screen.getByTitle('Page Preview')).toBeInTheDocument());
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    // ピッカーだけが閉じ、URL 入力済みの Step 1 が残る（自動では開き直さない）
+    await waitFor(() => expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
+  });
+
+  it('registers the whole page when the picker is skipped', async () => {
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    const { onSubmit } = renderModal();
+
+    fireEvent.change(screen.getByPlaceholderText('https://example.com/comics/123'), {
+      target: { value: 'https://example.com/manga' },
+    });
     fireEvent.click(screen.getByRole('button', { name: /ページ全体を見張る/ }));
 
     await waitFor(() => expect(screen.getByText('登録オプションの設定')).toBeInTheDocument());

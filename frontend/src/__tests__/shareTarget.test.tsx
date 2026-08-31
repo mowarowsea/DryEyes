@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.spyOn(api, 'getMe').mockResolvedValue(me);
   vi.spyOn(api, 'getHealth').mockRejectedValue(new Error('health は本テストでは使わない'));
   vi.spyOn(api, 'getWatches').mockResolvedValue([]);
+  vi.spyOn(api, 'getPageInfo').mockResolvedValue({ title: 'ぐらんぶる', url: 'https://example.com/manga' });
 });
 
 afterEach(() => {
@@ -41,16 +42,17 @@ afterEach(() => {
 });
 
 describe('共有シートからの起動', () => {
-  it('opens the create form with the shared URL already filled in', async () => {
+  it('opens the element picker for the shared URL without any typing', async () => {
     openedFromShareSheet(
       `/?shared=${encodeURIComponent('https://example.com/manga')}&title=%E3%81%90%E3%82%89`
     );
 
     render(<App />);
 
-    expect(await screen.findByText('監視対象URLの入力')).toBeInTheDocument();
-    // 共有された URL が入力欄に入るのは、モーダルが開いた次の描画になる
-    expect(await screen.findByDisplayValue('https://example.com/manga')).toBeInTheDocument();
+    // 共有された URL が入った状態で、そのまま要素の選択まで進む
+    expect(await screen.findByTitle('Page Preview')).toBeInTheDocument();
+    expect(screen.getByText('Step 2/3')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://example.com/manga')).toBeInTheDocument();
     // リロードで開き直さないようにクエリは消えている
     expect(window.location.search).toBe('');
   });
@@ -62,6 +64,8 @@ describe('共有シートからの起動', () => {
 
     expect(await screen.findByText('監視対象URLの入力')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('https://example.com/comics/123')).toHaveValue('');
+    // URL がないので要素の選択には進めない
+    expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
   });
 
   it('does not open the create form when the app is opened normally', async () => {
