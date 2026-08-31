@@ -40,11 +40,20 @@ export function scopeTopicToUser(userTopic: string, watchTopic?: string): string
 // changedetection.io は通知先を Apprise 形式で受け取るため、生の http:// URL は
 // "is not a valid AppRise URL" で 400 になる。ntfy:// (TLS なら ntfys://) に変換する。
 // clickUrl を渡すと ntfy の Click ヘッダーとして送られ、通知タップ時に開く URL になる。
-export function toAppriseNtfyUrl(baseUrl: string, topic: string, clickUrl?: string): string {
+// avatarUrl を渡すと ntfy の X-Icon ヘッダーとして送られ、通知にアイコン画像が表示される。
+export function toAppriseNtfyUrl(
+  baseUrl: string,
+  topic: string,
+  clickUrl?: string,
+  avatarUrl?: string
+): string {
   const parsed = new URL(baseUrl);
   const scheme = parsed.protocol === 'https:' ? 'ntfys' : 'ntfy';
   const port = parsed.port ? `:${parsed.port}` : '';
-  const query = clickUrl ? `?click=${encodeClickParam(clickUrl)}` : '';
+  const params: string[] = [];
+  if (clickUrl) params.push(`click=${encodeClickParam(clickUrl)}`);
+  if (avatarUrl) params.push(`avatar_url=${encodeClickParam(avatarUrl)}`);
+  const query = params.length > 0 ? `?${params.join('&')}` : '';
   return `${scheme}://${parsed.hostname}${port}/${topic}${query}`;
 }
 
@@ -57,11 +66,26 @@ export function buildWatchClickUrl(appBaseUrl: string): string {
   return `${appBaseUrl.replace(/\/$/, '')}/?watch=${WATCH_UUID_TOKEN}`;
 }
 
+// ntfy 通知のアイコンとして表示する、その監視対象サイトの favicon を返す DryEyes 自身の URL。
+// ntfy のクライアント（スマホアプリ等）がこの URL に直接アクセスして画像を取得するため、
+// changedetection.io からではなく appBaseUrl（LAN/Tailscale などスマホから届く URL）を使う。
+export function buildWatchFaviconUrl(appBaseUrl: string): string {
+  return `${appBaseUrl.replace(/\/$/, '')}/api/public/watches/${WATCH_UUID_TOKEN}/favicon`;
+}
+
 // 既存の通知 URL の click だけを差し替える。トピックや他のパラメータはそのまま残す。
 export function withClickParam(appriseUrl: string, clickUrl: string): string {
   const [base, query = ''] = appriseUrl.split('?');
   const params = query.split('&').filter((param) => param && !param.startsWith('click='));
   params.push(`click=${encodeClickParam(clickUrl)}`);
+  return `${base}?${params.join('&')}`;
+}
+
+// 既存の通知 URL の avatar_url だけを差し替える。トピックや他のパラメータはそのまま残す。
+export function withAvatarUrlParam(appriseUrl: string, avatarUrl: string): string {
+  const [base, query = ''] = appriseUrl.split('?');
+  const params = query.split('&').filter((param) => param && !param.startsWith('avatar_url='));
+  params.push(`avatar_url=${encodeClickParam(avatarUrl)}`);
   return `${base}?${params.join('&')}`;
 }
 

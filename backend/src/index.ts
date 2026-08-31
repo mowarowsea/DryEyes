@@ -5,8 +5,13 @@ import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { watchesRouter } from './routes/watches.js';
 import { proxyRouter } from './routes/proxy.js';
+import { publicWatchesRouter } from './routes/publicFavicon.js';
 import { changedetectionClient } from './services/changedetection.js';
-import { buildWatchClickUrl } from './services/ntfyTopic.js';
+import { buildWatchClickUrl, buildWatchFaviconUrl } from './services/ntfyTopic.js';
+
+// Cloudflare 由来の 403 を検知したら User-Agent を差し替えて再チェックするジョブの実行間隔。
+// 各監視のチェック間隔（最短でも分単位）に対して十分短く、かつ無駄打ちしすぎない値。
+const CLOUDFLARE_RETRY_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 const app = express();
 
@@ -18,6 +23,8 @@ app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/watches', watchesRouter);
 app.use('/api/proxy', proxyRouter);
+// ntfy のクライアントが通知アイコンを取りに来る公開エンドポイント（認証なし）
+app.use('/api/public/watches', publicWatchesRouter);
 
 app.listen(config.port, async () => {
   console.log(`[DryEyes BFF] Server is running on http://localhost:${config.port}`);
@@ -30,7 +37,8 @@ app.listen(config.port, async () => {
   // （changedetection.io 側の設定なので起動時に揃える）
   try {
     const updated = await changedetectionClient.syncNotificationSettings(
-      buildWatchClickUrl(config.app.baseUrl)
+      buildWatchClickUrl(config.app.baseUrl),
+      buildWatchFaviconUrl(config.app.baseUrl)
     );
     if (updated > 0) {
       console.log(`[DryEyes BFF] 既存監視 ${updated} 件の通知設定を更新しました`);
@@ -39,4 +47,13 @@ app.listen(config.port, async () => {
     // changedetection.io が起動していないだけのこともあるので致命的には扱わない
     console.warn('[DryEyes BFF] 通知設定の同期に失敗しました:', err.message);
   }
+
+  // Cloudflare 由来の 403 を User-Agent 差し替えで解消できないか、定期的に確認する
+  const runCloudflareRetry = () => {
+    changedetectionClient.retryCloudflareBlockedWatches().catch((err: any) => {
+      console.warn('[DryEyes BFF] Cloudflare UA retry の実行に失敗しました:', err.message);
+    });
+  };
+  runCloudflareRetry();
+  setInterval(runCloudflareRetry, CLOUDFLARE_RETRY_POLL_INTERVAL_MS);
 });

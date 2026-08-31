@@ -10,6 +10,8 @@ const { ChangedetectionClient, NOTIFICATION_TITLE, NOTIFICATION_BODY, NOTIFICATI
   await import('../changedetection.js');
 
 const CLICK = 'click=http%3A%2F%2F192.168.0.10%3A3010%2F%3Fwatch%3D{{watch_uuid}}';
+const AVATAR =
+  'avatar_url=http%3A%2F%2F192.168.0.10%3A3010%2Fapi%2Fpublic%2Fwatches%2F{{watch_uuid}}%2Ffavicon';
 
 describe('ChangedetectionClient', () => {
   let client: InstanceType<typeof ChangedetectionClient>;
@@ -26,42 +28,138 @@ describe('ChangedetectionClient', () => {
     client = new ChangedetectionClient();
   });
 
-  it('should list watches and transform them correctly', async () => {
-    const rawApiData = {
-      'uuid-1': {
+  it('should list watches from their details so paused and interval are correct', async () => {
+    // 一覧 API は paused / time_between_check / フィルタを返さないため、監視ごとの詳細を引く
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({
+        data: {
+          'uuid-1': { url: 'https://example.com/item/1', title: 'Example Item', last_error: false },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          url: 'https://example.com/item/1',
+          title: 'Example Item',
+          fetch_backend: 'html_requests',
+          time_between_check: { minutes: 15 },
+          paused: true,
+          last_checked: 1700000000,
+          last_changed: 1700000000,
+          include_filters: ['#price', '.stock'],
+          subtractive_selectors: ['.ads'],
+          history_n: 4,
+          notification_urls: ['http://localhost:8085/my-topic'],
+        },
+      });
+
+    const result = await client.listWatches();
+
+    expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/v1/watch/uuid-1');
+    expect(result).toEqual([
+      {
+        id: 'uuid-1',
         url: 'https://example.com/item/1',
         title: 'Example Item',
-        fetch_backend: 'html_requests',
-        time_between_check: { minutes: 15 },
-        paused: false,
-        last_checked: 1700000000,
-        last_changed: 1700000000,
-        include_filters: '#price\n.stock',
-        notification_urls: ['http://localhost:8085/my-topic'],
+        fetchBackend: 'html_requests',
+        checkIntervalMinutes: 15,
+        paused: true,
+        lastChecked: 1700000000,
+        lastChanged: 1700000000,
+        hasError: false,
+        lastError: null,
+        includeFilters: ['#price', '.stock'],
+        subtractedFilters: ['.ads'],
+        notificationTopic: 'my-topic',
+        tag: '',
+        snapshotCount: 4,
       },
-    };
+    ]);
+  });
 
-    mockAxiosInstance.get.mockResolvedValueOnce({ data: rawApiData });
+  it('should keep listing a watch whose detail could not be fetched', async () => {
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({
+        data: { 'uuid-1': { url: 'https://example.com/item/1', title: 'Example Item' } },
+      })
+      .mockRejectedValueOnce(new Error('detail unavailable'));
 
     const result = await client.listWatches();
 
     expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({
-      id: 'uuid-1',
+    expect(result[0]).toMatchObject({ id: 'uuid-1', title: 'Example Item', snapshotCount: 0 });
+  });
+
+  it('should reuse the cached detail on the next listing', async () => {
+    // 100 件規模でも 30 秒ごとのポーリングで毎回全件の詳細を引かないこと
+    const listEntry = {
       url: 'https://example.com/item/1',
       title: 'Example Item',
-      fetchBackend: 'html_requests',
-      checkIntervalMinutes: 15,
-      paused: false,
-      lastChecked: 1700000000,
-      lastChanged: 1700000000,
-      hasError: false,
-      lastError: null,
-      includeFilters: ['#price', '.stock'],
-      subtractedFilters: [],
-      notificationTopic: 'my-topic',
-      tag: '',
-    });
+      last_changed: 1700000000,
+      last_checked: 1700000000,
+      last_error: false,
+    };
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({ data: { 'uuid-1': listEntry } })
+      .mockResolvedValueOnce({
+        data: { ...listEntry, paused: true, time_between_check: { minutes: 15 }, history_n: 2 },
+      })
+      // 2 回目の一覧。チェック時刻だけ進んでいるので詳細は引き直さない
+      .mockResolvedValueOnce({ data: { 'uuid-1': { ...listEntry, last_checked: 1700000600 } } });
+
+    await client.listWatches();
+    const second = await client.listWatches();
+
+    expect(mockAxiosInstance.get).toHaveBeenCalledTimes(3);
+    expect(second[0].paused).toBe(true);
+    expect(second[0].checkIntervalMinutes).toBe(15);
+    // 時刻は毎回の一覧が返す新しい値を使う
+    expect(second[0].lastChecked).toBe(1700000600);
+  });
+
+  it('should refetch the detail once the watch has changed', async () => {
+    const listEntry = {
+      url: 'https://example.com/item/1',
+      title: 'Example Item',
+      last_changed: 1700000000,
+      last_checked: 1700000000,
+      last_error: false,
+    };
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({ data: { 'uuid-1': listEntry } })
+      .mockResolvedValueOnce({ data: { ...listEntry, history_n: 2 } })
+      .mockResolvedValueOnce({ data: { 'uuid-1': { ...listEntry, last_changed: 1700005000 } } })
+      .mockResolvedValueOnce({ data: { ...listEntry, last_changed: 1700005000, history_n: 3 } });
+
+    await client.listWatches();
+    const second = await client.listWatches();
+
+    expect(mockAxiosInstance.get).toHaveBeenCalledTimes(4);
+    expect(second[0].snapshotCount).toBe(3);
+  });
+
+  it('should drop the cached detail after the watch was updated', async () => {
+    // 間隔やフィルタの変更は一覧 API の値に出ないため、明示的に捨てないと古い設定が残る
+    const listEntry = {
+      url: 'https://example.com/item/1',
+      title: 'Example Item',
+      last_changed: 1700000000,
+      last_checked: 1700000000,
+      last_error: false,
+    };
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({ data: { 'uuid-1': listEntry } })
+      .mockResolvedValueOnce({ data: { ...listEntry, time_between_check: { minutes: 10 } } })
+      // updateWatch が最後に呼ぶ getWatch
+      .mockResolvedValueOnce({ data: { ...listEntry, time_between_check: { minutes: 60 } } })
+      .mockResolvedValueOnce({ data: { 'uuid-1': listEntry } })
+      .mockResolvedValueOnce({ data: { ...listEntry, time_between_check: { minutes: 60 } } });
+    mockAxiosInstance.put.mockResolvedValueOnce({ data: {} });
+
+    await client.listWatches();
+    await client.updateWatch('uuid-1', { checkIntervalMinutes: 60 }, 'dryeyes-alice-aaaaaa');
+    const after = await client.listWatches();
+
+    expect(after[0].checkIntervalMinutes).toBe(60);
   });
 
   it('should format creation payload with ntfy notification and interval', async () => {
@@ -89,13 +187,16 @@ describe('ChangedetectionClient', () => {
       url: 'https://example.com',
       title: 'My Watch',
       fetch_backend: 'html_webdriver',
-      notification_urls: [`ntfy://host.docker.internal:8085/dryeyes-alice-aaaaaa-alerts?${CLICK}`],
+      notification_urls: [
+        `ntfy://host.docker.internal:8085/dryeyes-alice-aaaaaa-alerts?${CLICK}&${AVATAR}`,
+      ],
       notification_title: NOTIFICATION_TITLE,
       notification_body: NOTIFICATION_BODY,
       notification_format: NOTIFICATION_FORMAT,
       time_between_check: { minutes: 30 },
       include_filters: ['.main-content'],
-      subtracted_filters: ['.footer'],
+      // 除外は subtractive_selectors。subtracted_filters では検知処理から参照されない。
+      subtractive_selectors: ['.footer'],
     }));
 
     // 差分をそのまま載せると ntfy 側で弾かれるため、本文は必ず切り詰めた平文にする
@@ -111,10 +212,10 @@ describe('ChangedetectionClient', () => {
       .mockResolvedValueOnce({
         data: { notification_urls: ['ntfy://host.docker.internal:8085/topic-a'] },
       })
-      // click もテンプレートも現行のものになっている監視は更新しない
+      // click も avatar_url もテンプレートも現行のものになっている監視は更新しない
       .mockResolvedValueOnce({
         data: {
-          notification_urls: [`ntfy://host.docker.internal:8085/topic-b?${CLICK}`],
+          notification_urls: [`ntfy://host.docker.internal:8085/topic-b?${CLICK}&${AVATAR}`],
           notification_title: NOTIFICATION_TITLE,
           notification_body: NOTIFICATION_BODY,
           notification_format: NOTIFICATION_FORMAT,
@@ -122,13 +223,14 @@ describe('ChangedetectionClient', () => {
       });
 
     const updated = await client.syncNotificationSettings(
-      'http://192.168.0.10:3010/?watch={{watch_uuid}}'
+      'http://192.168.0.10:3010/?watch={{watch_uuid}}',
+      'http://192.168.0.10:3010/api/public/watches/{{watch_uuid}}/favicon'
     );
 
     expect(updated).toBe(1);
     expect(mockAxiosInstance.put).toHaveBeenCalledTimes(1);
     expect(mockAxiosInstance.put).toHaveBeenCalledWith('/api/v1/watch/uuid-1', {
-      notification_urls: [`ntfy://host.docker.internal:8085/topic-a?${CLICK}`],
+      notification_urls: [`ntfy://host.docker.internal:8085/topic-a?${CLICK}&${AVATAR}`],
       notification_title: NOTIFICATION_TITLE,
       notification_body: NOTIFICATION_BODY,
       notification_format: NOTIFICATION_FORMAT,
