@@ -28,8 +28,12 @@ export function buildManifest(base: string): Record<string, unknown> {
     ],
     // ブラウザの共有シートから URL を受け取る口。
     // Vite の開発サーバーが `?url` を内部用クエリとして横取りするため、受け皿は `shared`。
+    //
+    // 受け口を start_url と分けて専用パスにしているのは、パラメータが落ちた場合でも
+    // 「共有から開かれた」ことをパスだけで判別できるようにするため
+    // （そのときは URL 空の登録モーダルを開いて、貼り付けから続けられる）。
     share_target: {
-      action: base,
+      action: `${base}share`,
       method: 'GET',
       params: { title: 'title', text: 'text', url: 'shared' },
     },

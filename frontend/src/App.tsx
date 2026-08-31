@@ -126,8 +126,13 @@ export default function App() {
 
     setSharedUrl(pendingCreateIntent.url);
     setIsCreateModalOpen(true);
+    // 共有されたのに URL が取り出せなかったときは黙って空欄を出さない。
+    // 端末やブラウザ側の受け渡しが崩れていても、貼り付けから続けられると分かるようにする。
+    if (pendingCreateIntent.source === 'share' && !pendingCreateIntent.url) {
+      showToast('共有からURLを受け取れませんでした。貼り付けから登録できます');
+    }
     setPendingCreateIntent(null);
-  }, [pendingCreateIntent, authState]);
+  }, [pendingCreateIntent, authState, showToast]);
 
   useEffect(() => {
     if (authState !== 'ready') return;

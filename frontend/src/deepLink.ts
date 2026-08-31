@@ -28,6 +28,8 @@ export function takePendingWatchId(): string | null {
 export interface CreateIntent {
   /** 共有された URL。ショートカット経由など、URL なしで開かれた場合は null。 */
   url: string | null;
+  /** 共有シート経由か、ホーム画面のショートカット経由か。 */
+  source: 'share' | 'shortcut';
 }
 
 // Android の共有は URL が `text` に混ざって渡ってくることが多く、
@@ -36,27 +38,40 @@ export interface CreateIntent {
 export function takeCreateIntent(): CreateIntent | null {
   if (typeof window === 'undefined') return null;
 
+  const base = import.meta.env.BASE_URL;
   const params = new URLSearchParams(window.location.search);
   // `url` も一応受ける（Vite を介さず配信する場合や手書きのリンク向け）
   const keys = ['shared', 'url', 'text', 'title', 'add'];
-  if (!keys.some((k) => params.has(k))) return null;
 
+  // 共有シートの受け口は `<base>share`。パラメータが 1 つも付かずに開かれても、
+  // パスだけで「共有から来た」と分かるようにしてある。
+  const onSharePath = trimSlash(window.location.pathname) === trimSlash(`${base}share`);
+  if (!onSharePath && !keys.some((k) => params.has(k))) return null;
+
+  const hasShareParam = ['shared', 'url', 'text', 'title'].some((k) => params.has(k));
   const shared =
     extractUrl(params.get('shared')) ??
     extractUrl(params.get('url')) ??
     extractUrl(params.get('text'));
 
   // 読み取ったパラメータは消す。残しておくとリロードのたびに登録モーダルが開き直す。
+  // 受け口のパスに居る場合は、そのままだとリロードで同じことが起きるので base へ戻す。
   keys.forEach((k) => params.delete(k));
   const query = params.toString();
+  const pathname = onSharePath ? base : window.location.pathname;
   window.history.replaceState(
     {},
     '',
-    `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+    `${pathname}${query ? `?${query}` : ''}${window.location.hash}`
   );
 
-  return { url: shared };
+  // `add=1` だけで開かれたときがショートカット。それ以外は共有シート由来とみなす。
+  const source = !onSharePath && !hasShareParam ? 'shortcut' : 'share';
+
+  return { url: shared, source };
 }
+
+const trimSlash = (path: string): string => path.replace(/\/+$/, '');
 
 function extractUrl(value: string | null): string | null {
   if (!value) return null;

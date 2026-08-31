@@ -57,6 +57,18 @@ describe('共有シートからの起動', () => {
     expect(window.location.search).toBe('');
   });
 
+  it('opens the create form even when the share sheet passed no parameters', async () => {
+    openedFromShareSheet('/share');
+
+    render(<App />);
+
+    // パラメータが落ちても、共有から来たことはパスで分かる。
+    // URL は空のまま登録モーダルを開き、貼り付けから続けられるようにする。
+    expect(await screen.findByText('監視対象URLの入力')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('https://example.com/comics/123')).toHaveValue('');
+    expect(screen.getByText(/共有からURLを受け取れませんでした/)).toBeInTheDocument();
+  });
+
   it('opens the empty create form for the home screen shortcut', async () => {
     openedFromShareSheet('/?add=1');
 
@@ -66,6 +78,8 @@ describe('共有シートからの起動', () => {
     expect(screen.getByPlaceholderText('https://example.com/comics/123')).toHaveValue('');
     // URL がないので要素の選択には進めない
     expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
+    // ショートカットは意図して空なので、共有失敗の案内は出さない
+    expect(screen.queryByText(/共有からURLを受け取れませんでした/)).not.toBeInTheDocument();
   });
 
   it('does not open the create form when the app is opened normally', async () => {
