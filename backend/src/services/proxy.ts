@@ -241,6 +241,79 @@ const INSPECTOR_SCRIPT = `
 </script>
 `;
 
+// 画面のテーマがダークのときに、プレビューするページ側へ注入するもの。
+//
+// iframe の中では prefers-color-scheme が端末の設定で評価されてしまい、DryEyes の
+// テーマ設定は届かない。そこで
+//   1. matchMedia を差し替えて、自前でテーマを切り替えるページにはダークを選ばせる
+//   2. それでも明るいままのページだけ、色を反転させて暗くする
+// の二段構えにする。1 で暗くなったページを 2 が更に反転しないよう、実際の背景色を見て決める。
+const DARK_PREVIEW_INJECTION = `
+<style id="dryeyes-dark-preview">
+  html.dryeyes-force-dark {
+    filter: invert(1) hue-rotate(180deg);
+    /* 反転前は白。反転後に暗くなるので、ページが背景色を持たなくても地は暗くなる */
+    background-color: #ffffff;
+  }
+  /* 写真やロゴまで反転すると別物になるので、そこだけ戻す */
+  html.dryeyes-force-dark img,
+  html.dryeyes-force-dark video,
+  html.dryeyes-force-dark canvas,
+  html.dryeyes-force-dark picture,
+  html.dryeyes-force-dark svg image {
+    filter: invert(1) hue-rotate(180deg);
+  }
+</style>
+<script>
+(function() {
+  var root = document.documentElement;
+
+  // 自前でテーマを切り替えるページに、端末ではなく DryEyes の設定を答える
+  try {
+    var nativeMatchMedia = window.matchMedia.bind(window);
+    window.matchMedia = function(query) {
+      var result = nativeMatchMedia(query);
+      if (typeof query === 'string' && query.indexOf('prefers-color-scheme') !== -1) {
+        try {
+          Object.defineProperty(result, 'matches', {
+            value: query.indexOf('dark') !== -1,
+            configurable: true,
+          });
+        } catch (e) {}
+      }
+      return result;
+    };
+  } catch (e) {}
+
+  // 実際に見えている地の色の明るさ（0=黒 〜 1=白）。
+  // body が透明ならその下の html を見る。どちらも透明ならブラウザ既定の白。
+  function backgroundLightness() {
+    var candidates = [document.body, root];
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (!el) continue;
+      var matched = String(getComputedStyle(el).backgroundColor || '').match(/rgba?\\(([^)]+)\\)/);
+      if (!matched) continue;
+      var parts = matched[1].split(',').map(parseFloat);
+      var alpha = parts.length > 3 ? parts[3] : 1;
+      if (!alpha) continue;
+      return (0.299 * parts[0] + 0.587 * parts[1] + 0.114 * parts[2]) / 255;
+    }
+    return 1;
+  }
+
+  function syncForcedDark() {
+    root.classList.toggle('dryeyes-force-dark', backgroundLightness() > 0.5);
+  }
+
+  document.addEventListener('DOMContentLoaded', syncForcedDark);
+  window.addEventListener('load', syncForcedDark);
+  // 読み込み後にテーマを当てるページがあるので、少し待ってからもう一度見る
+  setTimeout(syncForcedDark, 800);
+})();
+</script>
+`;
+
 // 実ブラウザが使えないときの保険。JS で描画される部分は出ないが、静的なページなら選べる。
 async function fetchStaticHtml(targetUrl: string): Promise<string> {
   const response = await axios.get(targetUrl, {
@@ -261,14 +334,21 @@ async function fetchStaticHtml(targetUrl: string): Promise<string> {
  * useBrowser を立てるとクロールと同じブラウザで描画したものを返す。
  * 話数一覧のように JS が後から差し込む部分は素の HTML には無いので、
  * 「出ていない部分がある」と気づいたときだけ画面側から切り替えてもらう。
+ *
+ * dark はログイン中のユーザーが選んでいる表示テーマ。プレビューだけ真っ白、を避けるため、
+ * ピッカーの枠と同じテーマでページを出す。
  */
-export async function fetchProxyPage(targetUrl: string, useBrowser = false): Promise<string> {
+export async function fetchProxyPage(
+  targetUrl: string,
+  useBrowser = false,
+  dark = false
+): Promise<string> {
   let html: string;
   let renderedWithBrowser = false;
 
   if (useBrowser) {
     try {
-      html = await renderPageHtml(targetUrl);
+      html = await renderPageHtml(targetUrl, dark);
       renderedWithBrowser = true;
     } catch (err: any) {
       console.warn(
@@ -289,7 +369,8 @@ export async function fetchProxyPage(targetUrl: string, useBrowser = false): Pro
 
   // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる。
   // Inspector はページ自身のスクリプトより先に動く必要があるので、同じ位置（<head> の先頭）へ入れる。
-  const headInjection = `<base href="${targetUrl}">${INSPECTOR_SCRIPT}${modeScript}`;
+  const darkInjection = dark ? DARK_PREVIEW_INJECTION : '';
+  const headInjection = `<base href="${targetUrl}">${INSPECTOR_SCRIPT}${darkInjection}${modeScript}`;
   const headMatch = html.match(/<head[^>]*>/i);
   const htmlMatch = html.match(/<html[^>]*>/i);
   if (headMatch) {

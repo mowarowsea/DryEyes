@@ -39,23 +39,28 @@ const SNAPSHOT_TTL_MS = 3 * 60 * 1000;
 const SNAPSHOT_CACHE_LIMIT = 20;
 const snapshotCache = new Map<string, { html: string; expiresAt: number }>();
 
-function readCache(url: string): string | null {
-  const hit = snapshotCache.get(url);
+// 同じ URL でも表示テーマが違えば別の絵になるので、キャッシュは分けて持つ
+function cacheKey(url: string, dark: boolean): string {
+  return `${dark ? 'dark' : 'light'} ${url}`;
+}
+
+function readCache(key: string): string | null {
+  const hit = snapshotCache.get(key);
   if (!hit) return null;
   if (hit.expiresAt < Date.now()) {
-    snapshotCache.delete(url);
+    snapshotCache.delete(key);
     return null;
   }
   return hit.html;
 }
 
-function writeCache(url: string, html: string): void {
+function writeCache(key: string, html: string): void {
   if (snapshotCache.size >= SNAPSHOT_CACHE_LIMIT) {
     // Map は挿入順なので、いちばん古い 1 件を捨てれば足りる
     const oldest = snapshotCache.keys().next().value;
     if (oldest !== undefined) snapshotCache.delete(oldest);
   }
-  snapshotCache.set(url, { html, expiresAt: Date.now() + SNAPSHOT_TTL_MS });
+  snapshotCache.set(key, { html, expiresAt: Date.now() + SNAPSHOT_TTL_MS });
 }
 
 export function clearSnapshotCache(): void {
@@ -73,9 +78,13 @@ export function clearSnapshotCache(): void {
  * 取り出した HTML からは script / iframe を落として完全な静的スナップショットにする。
  * ページ自身の JS が動き直すと、せっかく描画された内容を「ローディング中…」で塗り潰したり、
  * SPA のルーターが画面遷移を起こしたりするため。
+ *
+ * dark を立てるとブラウザ側の prefers-color-scheme をダークにして開く。JS でテーマを決める
+ * ページは、その判断結果ごとスナップショットに焼き込まれる。
  */
-export async function renderPageHtml(targetUrl: string): Promise<string> {
-  const cached = readCache(targetUrl);
+export async function renderPageHtml(targetUrl: string, dark = false): Promise<string> {
+  const key = cacheKey(targetUrl, dark);
+  const cached = readCache(key);
   if (cached) return cached;
 
   let browser: Browser | null = null;
@@ -85,6 +94,7 @@ export async function renderPageHtml(targetUrl: string): Promise<string> {
       userAgent: RENDER_USER_AGENT,
       locale: 'ja-JP',
       viewport: { width: 1280, height: 900 },
+      colorScheme: dark ? 'dark' : 'light',
     });
     const page = await context.newPage();
 
@@ -105,7 +115,7 @@ export async function renderPageHtml(targetUrl: string): Promise<string> {
     if (typeof html !== 'string' || !html) throw new Error('描画結果の HTML を取り出せませんでした');
 
     await context.close().catch(() => undefined);
-    writeCache(targetUrl, html);
+    writeCache(key, html);
     return html;
   } finally {
     await browser?.close().catch(() => undefined);

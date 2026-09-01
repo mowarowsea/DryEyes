@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useEscapeToClose } from './Modal';
+import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { apiUrl } from '../api';
 
 interface SelectedElementData {
@@ -70,6 +71,8 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const [renderMode, setRenderMode] = useState<'static' | 'browser'>('static');
   // ブラウザ描画を頼んだのに素の HTML が返ってきた（ブラウザに繋げなかった）
   const [browserRenderFailed, setBrowserRenderFailed] = useState(false);
+  // プレビューするページも画面と同じテーマで出す。枠だけ暗くて中身が真っ白だと目に痛い。
+  const isDark = useIsDarkTheme();
 
   // 登録／設定変更モーダルの上に重なるが、Esc では手前のこのピッカーだけが閉じる
   useEscapeToClose(isOpen, onClose);
@@ -87,6 +90,12 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     setRenderMode('static');
     setBrowserRenderFailed(false);
   }, [isOpen, targetUrl]);
+
+  // テーマを切り替えるとプレビューの URL が変わり iframe を読み込み直すので、その間は待たせる
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoading(true);
+  }, [isOpen, isDark]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -109,7 +118,9 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   if (!isOpen) return null;
 
   const proxyUrl = apiUrl(
-    `/proxy/page?url=${encodeURIComponent(targetUrl)}${renderMode === 'browser' ? '&render=browser' : ''}`
+    `/proxy/page?url=${encodeURIComponent(targetUrl)}` +
+      `&theme=${isDark ? 'dark' : 'light'}` +
+      (renderMode === 'browser' ? '&render=browser' : '')
   );
 
   const reloadPreview = () => {
@@ -167,19 +178,19 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             )}
             <MousePointerClick className="w-4 h-4 text-indigo-400 flex-shrink-0" />
             <span className="text-xs font-bold truncate">要素を選択</span>
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate hidden sm:inline">{targetUrl}</span>
+            <span className="text-[11px] text-slate-400 truncate hidden sm:inline">{targetUrl}</span>
           </div>
           <div className="flex items-center space-x-1 flex-shrink-0">
             <button
               onClick={reloadPreview}
-              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
               title="リロード"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -230,7 +241,17 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             id="dryeyes-preview-iframe"
             key={iframeKey}
             src={proxyUrl}
-            onLoad={() => setLoading(false)}
+            onLoad={() => {
+              setLoading(false);
+              // テーマ切り替えなどで読み込み直したときに、選んでいた要素のハイライトを戻す
+              if (selectedElement) {
+                const path =
+                  targetMode === 'similar' && selectedElement.similarXPath
+                    ? selectedElement.similarXPath
+                    : selectedElement.xpath;
+                sendHighlightToIframe(path);
+              }
+            }}
             className="w-full h-full border-none bg-white dark:bg-slate-900"
             title="Page Preview"
             sandbox="allow-scripts allow-same-origin"

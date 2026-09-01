@@ -28,6 +28,13 @@ export function isDarkApplied(mode: ThemeMode): boolean {
   return mode === 'dark' || (mode === 'system' && prefersDark());
 }
 
+// いま <html> に反映されている結果。ライト / ダーク / 端末に合わせる のどれを選んでいても、
+// 「見えている画面が暗いか」だけを返す。Tailwind の dark: が届かない場所
+// （要素ピッカーが iframe に流すページなど）へテーマを渡すために使う。
+export function isDarkNow(): boolean {
+  return document.documentElement.classList.contains('dark');
+}
+
 // <html> へ反映する。保存はしない（プレビュー用途でも使えるように分けている）
 export function applyTheme(mode: ThemeMode): void {
   const dark = isDarkApplied(mode);

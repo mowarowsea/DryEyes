@@ -79,6 +79,35 @@ describe('fetchProxyPage', () => {
     expect(axios.get).not.toHaveBeenCalled();
   });
 
+  // ピッカーの枠だけ暗くて中身が真っ白、を避けるため画面のテーマをページ側にも渡す
+  it('should leave the page untouched when the screen is in light theme', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>hi</body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).not.toContain('dryeyes-force-dark');
+  });
+
+  it('should darken the previewed page when the screen is in dark theme', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>hi</body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/', false, true);
+
+    // 自前でテーマを切り替えるページにはダークを選ばせ、
+    expect(result).toContain('prefers-color-scheme');
+    // それでも明るいままのページは反転して合わせる
+    expect(result).toContain('dryeyes-force-dark');
+  });
+
+  it('should render with a dark browser when the screen is in dark theme', async () => {
+    mockRender.mockReset();
+    mockRender.mockResolvedValueOnce('<html><head></head><body>rendered</body></html>');
+
+    await fetchProxyPage('https://example.com/', true, true);
+
+    expect(mockRender).toHaveBeenCalledWith('https://example.com/', true);
+  });
+
   // 押しても何も変わらないまま終わらせないよう、素の HTML で出したことを画面へ伝える
   it('should fall back to the raw HTML and report it when the browser is unavailable', async () => {
     (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>static</body></html>' });
