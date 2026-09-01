@@ -52,26 +52,41 @@ describe('fetchProxyPage', () => {
     expect(result).toContain('history.pushState');
   });
 
-  // 素の HTML では JS が後から描画する部分（話数一覧など）が丸ごと欠けるので、
-  // ふだんは実ブラウザで描画したものを使う。
-  it('should prefer the browser-rendered DOM over the raw HTML', async () => {
-    mockRender.mockResolvedValueOnce(
-      '<!DOCTYPE html><html><head></head><body><h4>11話</h4></body></html>'
-    );
-
-    const result = await fetchProxyPage('https://example.com/episode/1');
-
-    expect(result).toContain('11話');
-    expect(result).toContain('<base href="https://example.com/episode/1">');
-    expect(axios.get).not.toHaveBeenCalled();
-  });
-
-  it('should fall back to the raw HTML when the browser is unavailable', async () => {
+  // 既定は軽い静的取得。重い描画は画面から頼まれたときだけにする。
+  it('should not start a browser unless it is asked to', async () => {
     (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>static</body></html>' });
 
     const result = await fetchProxyPage('https://example.com/');
 
+    expect(mockRender).not.toHaveBeenCalled();
     expect(result).toContain('static');
+    expect(result).toContain("mode:'static'");
+  });
+
+  // 素の HTML では JS が後から描画する部分（話数一覧など）が丸ごと欠けるので、
+  // 頼まれたときは実ブラウザで描画したものを使う。
+  it('should use the browser-rendered DOM when asked to', async () => {
+    mockRender.mockReset();
+    mockRender.mockResolvedValueOnce(
+      '<!DOCTYPE html><html><head></head><body><h4>11話</h4></body></html>'
+    );
+
+    const result = await fetchProxyPage('https://example.com/episode/1', true);
+
+    expect(result).toContain('11話');
+    expect(result).toContain('<base href="https://example.com/episode/1">');
+    expect(result).toContain("mode:'browser'");
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  // 押しても何も変わらないまま終わらせないよう、素の HTML で出したことを画面へ伝える
+  it('should fall back to the raw HTML and report it when the browser is unavailable', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>static</body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/', true);
+
+    expect(result).toContain('static');
+    expect(result).toContain("mode:'static'");
     expect(axios.get).toHaveBeenCalled();
   });
 });

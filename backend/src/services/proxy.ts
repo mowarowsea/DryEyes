@@ -254,23 +254,42 @@ async function fetchStaticHtml(targetUrl: string): Promise<string> {
   return response.data;
 }
 
-export async function fetchProxyPage(targetUrl: string): Promise<string> {
-  // クロールと同じブラウザで描画する。素の HTML では話数一覧のような
-  // JS が後から差し込む部分が丸ごと欠けてしまい、そこを監視対象に選べない。
+/**
+ * ピッカーに流すページを取ってくる。
+ *
+ * 既定は素の HTML。取得が速く、たいていのページはこれで選べる。
+ * useBrowser を立てるとクロールと同じブラウザで描画したものを返す。
+ * 話数一覧のように JS が後から差し込む部分は素の HTML には無いので、
+ * 「出ていない部分がある」と気づいたときだけ画面側から切り替えてもらう。
+ */
+export async function fetchProxyPage(targetUrl: string, useBrowser = false): Promise<string> {
   let html: string;
-  try {
-    html = await renderPageHtml(targetUrl);
-  } catch (err: any) {
-    console.warn(
-      `[picker] ブラウザ描画に失敗したため静的 HTML で表示します (${targetUrl}):`,
-      err?.message
-    );
+  let renderedWithBrowser = false;
+
+  if (useBrowser) {
+    try {
+      html = await renderPageHtml(targetUrl);
+      renderedWithBrowser = true;
+    } catch (err: any) {
+      console.warn(
+        `[picker] ブラウザ描画に失敗したため静的 HTML で表示します (${targetUrl}):`,
+        err?.message
+      );
+      html = await fetchStaticHtml(targetUrl);
+    }
+  } else {
     html = await fetchStaticHtml(targetUrl);
   }
 
+  // どちらで描画したかを画面へ知らせる。ブラウザ描画を頼まれたのに落ちたときに、
+  // 「押したのに何も変わらない」で終わらせないため。
+  const modeScript =
+    `<script>try{window.parent.postMessage({type:'DRYEYES_RENDER_MODE',` +
+    `mode:'${renderedWithBrowser ? 'browser' : 'static'}'},'*');}catch(e){}</script>`;
+
   // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる。
   // Inspector はページ自身のスクリプトより先に動く必要があるので、同じ位置（<head> の先頭）へ入れる。
-  const headInjection = `<base href="${targetUrl}">${INSPECTOR_SCRIPT}`;
+  const headInjection = `<base href="${targetUrl}">${INSPECTOR_SCRIPT}${modeScript}`;
   const headMatch = html.match(/<head[^>]*>/i);
   const htmlMatch = html.match(/<html[^>]*>/i);
   if (headMatch) {

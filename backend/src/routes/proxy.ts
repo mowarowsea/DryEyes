@@ -38,8 +38,12 @@ proxyRouter.get('/page', async (req, res) => {
     return res.status(400).send('url parameter is required');
   }
 
+  // 既定は軽い静的取得。画面側で「もうちょっと頑張って描画する」を押すと
+  // render=browser が付き、クロールと同じブラウザで描画したものを返す。
+  const useBrowser = req.query.render === 'browser';
+
   try {
-    const html = await fetchProxyPage(targetUrl);
+    const html = await fetchProxyPage(targetUrl, useBrowser);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err: any) {

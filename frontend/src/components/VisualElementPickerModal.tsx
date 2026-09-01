@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Settings2,
   ShieldAlert,
+  Sparkles,
 } from 'lucide-react';
 import { useEscapeToClose } from './Modal';
 import { apiUrl } from '../api';
@@ -64,6 +65,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showOptions, setShowOptions] = useState(false);
+  // 既定は素の HTML を出すだけの軽い描画。JS で後から出てくる部分（話数一覧など）が
+  // 必要なときだけ、ボタンでクロールと同じブラウザに切り替える。
+  const [renderMode, setRenderMode] = useState<'static' | 'browser'>('static');
+  // ブラウザ描画を頼んだのに素の HTML が返ってきた（ブラウザに繋げなかった）
+  const [browserRenderFailed, setBrowserRenderFailed] = useState(false);
 
   // 登録／設定変更モーダルの上に重なるが、Esc では手前のこのピッカーだけが閉じる
   useEscapeToClose(isOpen, onClose);
@@ -75,23 +81,48 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     }
   };
 
+  // 開き直したときや対象が変わったときは、また軽い描画から始める
+  useEffect(() => {
+    if (!isOpen) return;
+    setRenderMode('static');
+    setBrowserRenderFailed(false);
+  }, [isOpen, targetUrl]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'DRYEYES_ELEMENT_SELECTED') {
+      if (!event.data) return;
+      if (event.data.type === 'DRYEYES_ELEMENT_SELECTED') {
         const payload: SelectedElementData = event.data.payload;
         setSelectedElement(payload);
         setTargetMode('single');
         sendHighlightToIframe(payload.xpath);
+      } else if (event.data.type === 'DRYEYES_RENDER_MODE') {
+        // 頼んだ描画と返ってきた描画が食い違ったら、押しても変わらない理由を出す
+        setBrowserRenderFailed(event.data.mode === 'static' && renderMode === 'browser');
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isOpen]);
+  }, [isOpen, renderMode]);
 
   if (!isOpen) return null;
 
-  const proxyUrl = apiUrl(`/proxy/page?url=${encodeURIComponent(targetUrl)}`);
+  const proxyUrl = apiUrl(
+    `/proxy/page?url=${encodeURIComponent(targetUrl)}${renderMode === 'browser' ? '&render=browser' : ''}`
+  );
+
+  const reloadPreview = () => {
+    setLoading(true);
+    setSelectedElement(null);
+    setIframeKey((k) => k + 1);
+  };
+
+  const handleRenderWithBrowser = () => {
+    setBrowserRenderFailed(false);
+    setRenderMode('browser');
+    reloadPreview();
+  };
 
   const handleToggleSimilar = (toSimilar: boolean) => {
     if (!selectedElement) return;
@@ -140,7 +171,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
           </div>
           <div className="flex items-center space-x-1 flex-shrink-0">
             <button
-              onClick={() => { setLoading(true); setSelectedElement(null); setIframeKey((k) => k + 1); }}
+              onClick={reloadPreview}
               className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg transition"
               title="リロード"
             >
@@ -161,10 +192,37 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
               <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2" />
               <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">ページを読み込み中...</span>
-              {/* クロールと同じブラウザで開いて描画し終えるまで待つので、10 秒ほどかかる */}
-              <span className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                実際に表示される内容に合わせるため、少し時間がかかります
-              </span>
+              {/* ブラウザで開いて描画し終えるまで待つので、10 秒ほどかかる */}
+              {renderMode === 'browser' && (
+                <span className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  実際に表示される内容に合わせるため、少し時間がかかります
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* 素の HTML では出ない部分に気づいたとき用の逃げ道。
+              重い描画は毎回やると 10 秒待たされるので、押されたときだけにする。 */}
+          {!loading && renderMode === 'static' && (
+            <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
+              <button
+                type="button"
+                onClick={handleRenderWithBrowser}
+                title="ページを実際のブラウザで開いて、JS で後から出てくる部分まで描画します"
+                className="px-4 py-2.5 bg-slate-900/90 dark:bg-slate-800/95 text-white text-xs font-medium rounded-full shadow-lg backdrop-blur-sm border border-white/10 hover:bg-slate-900 transition flex items-center gap-2"
+              >
+                <Sparkles className="w-4 h-4 text-indigo-300 flex-shrink-0" />
+                <span>表示されない部分がある？ もうちょっと頑張って描画する</span>
+              </button>
+            </div>
+          )}
+
+          {!loading && browserRenderFailed && (
+            <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
+              <div className="px-4 py-2.5 bg-amber-50 dark:bg-amber-500/15 text-amber-800 dark:text-amber-200 text-xs rounded-xl shadow-lg border border-amber-200 dark:border-amber-500/30 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>ブラウザに繋げませんでした。Docker が動いているか確認してください</span>
+              </div>
             </div>
           )}
           {/* 選ぶだけの画面なので、フォーム送信で遷移しないよう allow-forms は付けない */}
