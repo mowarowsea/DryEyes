@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { renderPageHtml, RENDER_USER_AGENT } from './browserRender.js';
 
 // 注入する Element Inspector スクリプト。
 // <head> の先頭に置いて、ページ自身のスクリプトより先にリスナーを登録する。
@@ -240,20 +241,32 @@ const INSPECTOR_SCRIPT = `
 </script>
 `;
 
-export async function fetchProxyPage(targetUrl: string): Promise<string> {
-  const urlObj = new URL(targetUrl);
-  const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-
+// 実ブラウザが使えないときの保険。JS で描画される部分は出ないが、静的なページなら選べる。
+async function fetchStaticHtml(targetUrl: string): Promise<string> {
   const response = await axios.get(targetUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'User-Agent': RENDER_USER_AGENT,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     },
     responseType: 'text',
     timeout: 12000,
   });
+  return response.data;
+}
 
-  let html = response.data;
+export async function fetchProxyPage(targetUrl: string): Promise<string> {
+  // クロールと同じブラウザで描画する。素の HTML では話数一覧のような
+  // JS が後から差し込む部分が丸ごと欠けてしまい、そこを監視対象に選べない。
+  let html: string;
+  try {
+    html = await renderPageHtml(targetUrl);
+  } catch (err: any) {
+    console.warn(
+      `[picker] ブラウザ描画に失敗したため静的 HTML で表示します (${targetUrl}):`,
+      err?.message
+    );
+    html = await fetchStaticHtml(targetUrl);
+  }
 
   // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる。
   // Inspector はページ自身のスクリプトより先に動く必要があるので、同じ位置（<head> の先頭）へ入れる。
@@ -275,7 +288,7 @@ export async function getPageInfo(targetUrl: string): Promise<{ title: string; u
   try {
     const response = await axios.get(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': RENDER_USER_AGENT,
       },
       responseType: 'text',
       timeout: 8000,

@@ -32,6 +32,9 @@ services:
       - SCREEN_HEIGHT=1080
       - SCREEN_DEPTH=16
       - MAX_CONCURRENT_CHROME_PROCESSES=10
+    # 監視対象ピッカーもクロールと同じブラウザで描画するため、BFF から直接つなげるようにする
+    ports:
+      - "3020:3000"
     restart: unless-stopped
 
 volumes:

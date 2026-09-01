@@ -51,6 +51,12 @@ export const config = {
     baseUrl: process.env.CHANGEDETECTION_URL || 'http://localhost:5000',
     apiKey: process.env.CHANGEDETECTION_API_KEY || '',
   },
+  browser: {
+    // クロールに使っている sockpuppetbrowser の CDP エンドポイント。
+    // 監視対象ピッカーも同じブラウザで描画して、クロールと同じ絵を見せる。
+    // (docker-compose がコンテナの 3000 番をホストの 3020 番へ出している)
+    wsUrl: process.env.BROWSER_WS_URL || 'ws://localhost:3020',
+  },
   ntfy: {
     // ホスト／ブラウザから見た ntfy の URL（購読リンクの表示用）
     baseUrl: process.env.NTFY_URL || 'http://localhost:8085',

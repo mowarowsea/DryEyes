@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
+import { LAZY_LOAD_SCROLL_JS } from '../lazyLoadScroll.js';
 
 vi.mock('axios');
 
@@ -197,6 +198,8 @@ describe('ChangedetectionClient', () => {
       include_filters: ['.main-content'],
       // 除外は subtractive_selectors。subtracted_filters では検知処理から参照されない。
       subtractive_selectors: ['.footer'],
+      // 画面内に入って初めて中身が入る一覧を拾えるよう、クロール時にもスクロールさせる
+      webdriver_js_execute_code: LAZY_LOAD_SCROLL_JS,
     }));
 
     // 差分をそのまま載せると ntfy 側で弾かれるため、本文は必ず切り詰めた平文にする

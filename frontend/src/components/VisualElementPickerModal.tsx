@@ -161,6 +161,10 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm">
               <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2" />
               <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">ページを読み込み中...</span>
+              {/* クロールと同じブラウザで開いて描画し終えるまで待つので、10 秒ほどかかる */}
+              <span className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                実際に表示される内容に合わせるため、少し時間がかかります
+              </span>
             </div>
           )}
           {/* 選ぶだけの画面なので、フォーム送信で遷移しないよう allow-forms は付けない */}

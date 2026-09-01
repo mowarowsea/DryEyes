@@ -8,6 +8,7 @@ import {
   withAvatarUrlParam,
   withClickParam,
 } from './ntfyTopic.js';
+import { LAZY_LOAD_SCROLL_JS } from './lazyLoadScroll.js';
 import { CreateWatchDto, UpdateWatchDto, WatchModel, WatchHistoryItem } from '../types/index.js';
 
 // ntfy へ送る通知のテンプレート。
@@ -188,6 +189,11 @@ export class ChangedetectionClient {
       url: dto.url,
       title: dto.title || dto.url,
       fetch_backend: dto.fetchBackend || 'html_webdriver',
+      // changedetection.io はページを開いて待つだけでスクロールしない。
+      // 画面内に入って初めて中身が入る一覧（少年ジャンプ＋の話数一覧など）は
+      // それだと最後まで「ローディング中…」のままなので、こちらから降りて起こす。
+      // ピッカーの描画と同じスクリプトを使い、見えている絵と拾う内容を一致させる。
+      webdriver_js_execute_code: LAZY_LOAD_SCROLL_JS,
       tag: dto.tag || '',
       notification_urls: [ntfyUrl],
       notification_title: NOTIFICATION_TITLE,
@@ -224,7 +230,9 @@ export class ChangedetectionClient {
 
   // 監視更新
   async updateWatch(uuid: string, dto: UpdateWatchDto, ownerTopic: string): Promise<WatchModel> {
-    const payload: Record<string, any> = {};
+    // 遅延読み込みを起こすスクロールは、保存のたびに現行のものへ揃えておく。
+    // DryEyes より前に作った監視も、設定を開いて保存し直せば拾えるようになる。
+    const payload: Record<string, any> = { webdriver_js_execute_code: LAZY_LOAD_SCROLL_JS };
 
     if (dto.url !== undefined) payload.url = dto.url;
     if (dto.title !== undefined) payload.title = dto.title;
