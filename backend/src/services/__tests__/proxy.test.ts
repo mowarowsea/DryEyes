@@ -52,6 +52,54 @@ describe('fetchProxyPage', () => {
     expect(result).toContain('history.pushState');
   });
 
+  // capture は window → document の順に流れる。document だけに付けていると、
+  // ページが window に付けたリスナーに先を越されて遷移してしまう。
+  it('should capture events on window, not only on document', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body></body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).toContain('CAPTURE_ROOTS = [window, document]');
+    // 選択のための click も最上流の window で先取りする
+    expect(result).toContain("window.addEventListener('click'");
+  });
+
+  // イベント遮断が 1 経路でも漏れると遷移するので、href そのものを剥がしておく
+  it('should strip href and target from links so they cannot navigate at all', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: '<html><head></head><body><a href="/next" target="_blank">Next</a></body></html>',
+    });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).toContain("NEUTRAL_HREF = 'javascript:void(0)'");
+    // 選択後に元の遷移先を読めるよう退避する
+    expect(result).toContain('data-dryeyes-href');
+    expect(result).toContain("a.removeAttribute('target')");
+  });
+
+  // 話数一覧のように JS が後から差し込むリンクにも追従する必要がある
+  it('should keep neutralizing links that are added after load', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body></body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).toContain('MutationObserver');
+    expect(result).toContain("attributeFilter: ['href', 'action', 'target', 'http-equiv']");
+  });
+
+  // クリック以外の遷移経路（meta refresh・location 書き換え・JS 発火のクリック）も塞ぐ
+  it('should block navigation paths that do not go through a click', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body></body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).toContain('location.assign');
+    expect(result).toContain('location.replace');
+    expect(result).toContain("http-equiv') || '').toLowerCase() === 'refresh'");
+    expect(result).toContain('HTMLElement.prototype.click');
+  });
+
   // 既定は軽い静的取得。重い描画は画面から頼まれたときだけにする。
   it('should not start a browser unless it is asked to', async () => {
     (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>static</body></html>' });

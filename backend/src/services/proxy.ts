@@ -67,7 +67,7 @@ const INSPECTOR_SCRIPT = `
 
   // デフォルト動作（リンク遷移・フォーム送信）と、ページ自身のハンドラの両方を止める。
   // stopPropagation ではなく stopImmediatePropagation なのは、
-  // ページが document に先に付けたリスナー（SPAのルーターなど）も黙らせるため。
+  // 同じノードにページが先に付けたリスナー（SPAのルーターなど）も黙らせるため。
   function blockEvent(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -79,18 +79,107 @@ const INSPECTOR_SCRIPT = `
     e.stopImmediatePropagation();
   }
 
-  ['mousedown', 'mouseup', 'auxclick', 'submit', 'dragstart'].forEach(function(type) {
-    document.addEventListener(type, blockEvent, true);
-  });
-  ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'keydown', 'keyup'].forEach(function(type) {
-    document.addEventListener(type, muteEvent, true);
-  });
+  // capture は window → document → 要素 の順に流れる。document だけに付けていると、
+  // window に付けたページ側のリスナーに先を越されて遷移してしまう。両方で捕まえる。
+  var CAPTURE_ROOTS = [window, document];
 
-  // クリック以外の遷移経路（新規ウィンドウ・SPAの履歴操作）も塞ぐ
+  function captureAll(types, handler) {
+    types.forEach(function(type) {
+      CAPTURE_ROOTS.forEach(function(root) {
+        root.addEventListener(type, handler, true);
+      });
+    });
+  }
+
+  captureAll(['mousedown', 'mouseup', 'auxclick', 'submit', 'dragstart'], blockEvent);
+  captureAll(['touchstart', 'touchend', 'pointerdown', 'pointerup', 'keydown', 'keyup'], muteEvent);
+
+  // ---- 遷移先そのものを持たせない ----
+  //
+  // イベントを止める防御は、1 経路でも漏れる（未知のイベント名・setTimeout 経由など）と
+  // 遷移してしまう。そこでリンクからは href を剥がし、遷移しようがない状態にする。
+  // 元の href は選択後に参照できるよう data 属性へ退避する。
+  var NEUTRAL_HREF = 'javascript:void(0)';
+
+  function neutralizeLink(a) {
+    var href = a.getAttribute('href');
+    if (href !== null && href !== NEUTRAL_HREF) {
+      a.setAttribute('data-dryeyes-href', href);
+      a.setAttribute('href', NEUTRAL_HREF);
+    }
+    // target="_blank" は別タブを開こうとするので落とす
+    if (a.hasAttribute('target')) a.removeAttribute('target');
+  }
+
+  function neutralizeForm(form) {
+    var action = form.getAttribute('action');
+    if (action !== null) {
+      form.setAttribute('data-dryeyes-action', action);
+      form.removeAttribute('action');
+    }
+    if (form.hasAttribute('target')) form.removeAttribute('target');
+  }
+
+  function neutralizeMeta(meta) {
+    // <meta http-equiv="refresh"> は放っておくと勝手に飛ぶ
+    if ((meta.getAttribute('http-equiv') || '').toLowerCase() === 'refresh') {
+      meta.parentNode && meta.parentNode.removeChild(meta);
+    }
+  }
+
+  function neutralizeTree(root) {
+    if (!root || root.nodeType !== 1) return;
+    if (root.tagName === 'A') neutralizeLink(root);
+    else if (root.tagName === 'FORM') neutralizeForm(root);
+    else if (root.tagName === 'META') neutralizeMeta(root);
+    if (!root.querySelectorAll) return;
+    Array.prototype.forEach.call(root.querySelectorAll('a[href]'), neutralizeLink);
+    Array.prototype.forEach.call(root.querySelectorAll('form'), neutralizeForm);
+    Array.prototype.forEach.call(root.querySelectorAll('meta[http-equiv]'), neutralizeMeta);
+  }
+
+  neutralizeTree(document.documentElement);
+
+  // 話数一覧のように JS が後から差し込むリンクや、href を書き戻すページも追いかける。
+  // 2 周目は href が既に無害化済みなので、自分の書き換えでは回り続けない。
+  try {
+    new MutationObserver(function(records) {
+      records.forEach(function(record) {
+        Array.prototype.forEach.call(record.addedNodes, neutralizeTree);
+        if (record.type === 'attributes') neutralizeTree(record.target);
+      });
+    }).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['href', 'action', 'target', 'http-equiv'],
+    });
+  } catch (e) {}
+
+  document.addEventListener('DOMContentLoaded', function() { neutralizeTree(document.documentElement); });
+  window.addEventListener('load', function() { neutralizeTree(document.documentElement); });
+
+  // クリック以外の遷移経路（新規ウィンドウ・SPAの履歴操作・location 書き換え）も塞ぐ。
+  // location.href への代入だけは仕様上どうしても潰せないので、
+  // 上の href 剥がしとイベント遮断が主防御、ここは取りこぼしの受け皿という位置づけ。
   try { window.open = function() { return null; }; } catch (e) {}
   try {
     history.pushState = function() {};
     history.replaceState = function() {};
+  } catch (e) {}
+  try {
+    location.assign = function() {};
+    location.replace = function() {};
+    location.reload = function() {};
+  } catch (e) {}
+
+  // ページ側が JS からリンクのクリックを発火させて飛ぶことがある
+  try {
+    var nativeClick = HTMLElement.prototype.click;
+    HTMLElement.prototype.click = function() {
+      if (this && this.tagName === 'A') return;
+      return nativeClick.apply(this, arguments);
+    };
   } catch (e) {}
 
   // XPath 計算ヘルパー（厳密な単一要素）
@@ -211,8 +300,11 @@ const INSPECTOR_SCRIPT = `
     return texts;
   }
 
-  // クリック/タップ
-  document.addEventListener('click', function(e) {
+  // クリック/タップ。
+  // window の capture に付けるのは、ここが最上流だから。ページが window に付けた
+  // リスナーより先に走って握り潰せるうえ、stopImmediatePropagation で document 以下へも流さない。
+  // このスクリプトは <head> の先頭にあるので、window 上でも必ずページより先に登録される。
+  window.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
 
