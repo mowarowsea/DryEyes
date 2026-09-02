@@ -113,7 +113,7 @@ export const WatchList: React.FC<WatchListProps> = ({
           {!search && activeTab === 'all' && (
             <button
               onClick={onOpenCreateModal}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition active:scale-95 shadow-sm shadow-indigo-200 dark:shadow-none"
+              className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition active:scale-95 shadow-sm shadow-indigo-200 dark:shadow-none"
             >
               最初のページを登録する
             </button>

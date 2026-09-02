@@ -22,13 +22,14 @@ export const choiceButtonClass = (selected: boolean): string =>
       : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
   }`;
 
-// モーダル下部の「キャンセル」
+// モーダル下部の「キャンセル」。決定ボタンと高さを揃える。
 export const cancelButtonClass =
-  'px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition';
+  'px-4 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition';
 
-// モーダル下部の主ボタン（登録する／保存する／コピーを作成）
+// モーダル下部の主ボタン（登録する／保存する／コピーを作成）。
+// 押してほしい操作なので、周りより一段大きく取る。
 export const submitButtonClass =
-  'px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center gap-1.5';
+  'px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center gap-1.5';
 
 // セレクトボックス。入力欄と同じ枠に、右端の矢印ぶんだけ余白を足したもの
 export const selectClass = `${inputClass} pr-8 appearance-none cursor-pointer`;

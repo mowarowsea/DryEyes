@@ -194,7 +194,7 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
               type="button"
               onClick={() => setIsPickerOpen(true)}
               disabled={!url.trim()}
-              className="w-full px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-40 disabled:active:scale-100 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center justify-center gap-1.5"
+              className="w-full px-4 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-40 disabled:active:scale-100 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center justify-center gap-1.5"
             >
               <MousePointerClick className="w-4 h-4" />
               画面から選ぶ

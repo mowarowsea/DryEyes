@@ -189,7 +189,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
             onClose();
           }}
           disabled={marking}
-          className="px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 disabled:opacity-40 rounded-xl transition inline-flex items-center"
+          className="px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 disabled:opacity-40 rounded-xl transition inline-flex items-center"
         >
           <Check className="w-3.5 h-3.5 mr-1" />
           既読にする
@@ -201,7 +201,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
             // 差分を確認したうえでサイトへ移動する動線。移動と同時に既読にする。
             void markViewed();
           }}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-xs font-semibold rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none inline-flex items-center"
+          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-sm font-bold rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none inline-flex items-center"
         >
           サイトを開く
           <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
