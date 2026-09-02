@@ -22,3 +22,44 @@ html.dark ::placeholder {
   color: rgb(100 116 139);
   opacity: 1;
 }
+
+/* ドロップダウンの出現。Tailwind の設定側には無いユーティリティなので、ここで定義する。 */
+@keyframes dryeyes-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: dryeyes-fade-in 120ms ease-out;
+}
+
+/* 登録直後のカード。数秒だけ縁が脈打ち、どれが増えたのかを追えるようにする。 */
+@keyframes dryeyes-just-added {
+  0% {
+    box-shadow: 0 0 0 0 rgb(99 102 241 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgb(99 102 241 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(99 102 241 / 0);
+  }
+}
+
+.animate-justAdded {
+  animation: dryeyes-just-added 1.6s ease-out 3;
+}
+
+/* 動きを抑える設定の端末では脈打たせず、縁の色だけで示す */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadeIn,
+  .animate-justAdded {
+    animation: none;
+  }
+}

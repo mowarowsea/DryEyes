@@ -1,8 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { EyeOff, Layers } from 'lucide-react';
 import { WatchModel } from '../types';
 import { WatchCard } from './WatchCard';
+import { FilterTab, ListToolbar } from './ListToolbar';
 import { isUnviewed } from '../watchStatus';
+import { SortOrder, getStoredSort, sortWatches, storeSort } from '../listSort';
 
 interface WatchListProps {
   watches: WatchModel[];
@@ -10,6 +12,8 @@ interface WatchListProps {
   loaded: boolean;
   // 検索語。入力欄は固定ヘッダ側にあるので、値だけを受け取る。
   search: string;
+  // 登録直後に目立たせる監視。数秒だけ入り、その後 null に戻る。
+  highlightedId?: string | null;
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
@@ -19,19 +23,11 @@ interface WatchListProps {
   onOpenCreateModal: () => void;
 }
 
-type FilterTab = 'all' | 'changed' | 'error' | 'paused';
-
-const TABS: { key: FilterTab; label: string }[] = [
-  { key: 'all', label: 'すべて' },
-  { key: 'changed', label: '未読' },
-  { key: 'error', label: 'エラー' },
-  { key: 'paused', label: '停止中' },
-];
-
 export const WatchList: React.FC<WatchListProps> = ({
   watches,
   loaded,
   search,
+  highlightedId = null,
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
@@ -41,6 +37,18 @@ export const WatchList: React.FC<WatchListProps> = ({
   onOpenCreateModal,
 }) => {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [sort, setSort] = useState<SortOrder>(() => getStoredSort());
+
+  const handleChangeSort = (next: SortOrder) => {
+    setSort(next);
+    storeSort(next);
+  };
+
+  // 登録直後の監視は未読でもエラーでもないため、絞り込み中だと一覧に出てこない。
+  // せっかく目立たせても隠れていては意味がないので、そのときだけ「すべて」に戻す。
+  useEffect(() => {
+    if (highlightedId) setActiveTab('all');
+  }, [highlightedId]);
 
   const filteredWatches = useMemo(() => {
     const matched = watches.filter((w) => {
@@ -56,13 +64,11 @@ export const WatchList: React.FC<WatchListProps> = ({
       return true;
     });
 
-    // 更新日付の降順。まだ変更が無い監視は最後にまとめる。
-    // 並び替えに lastChecked は使わない。裏のチェックが走るたびに動く値なので、
-    // 見ている最中にカードの順番が勝手に入れ替わってしまう。
-    return matched.sort(
-      (a, b) => (b.lastChanged ?? 0) - (a.lastChanged ?? 0) || a.id.localeCompare(b.id)
-    );
-  }, [watches, search, activeTab]);
+    // 既定は更新日付の降順。まだ変更が無い監視は最後にまとまる。
+    // 確認日時での並び替えも選べるようにはしたが、既定にはしない。裏のチェックが走るたびに
+    // 動く値なので、見ている最中にカードの順番が勝手に入れ替わってしまう。
+    return sortWatches(matched, sort);
+  }, [watches, search, activeTab, sort]);
 
   const countOf = (tab: FilterTab) => {
     if (tab === 'changed') return watches.filter(isUnviewed).length;
@@ -73,24 +79,14 @@ export const WatchList: React.FC<WatchListProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* フィルタ */}
-      <div className="flex">
-        <div className="flex items-center space-x-1 bg-slate-200/60 dark:bg-slate-800 p-1 rounded-xl text-xs font-medium overflow-x-auto">
-          {TABS.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                activeTab === key
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-              }`}
-            >
-              {label} ({countOf(key)})
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* 絞り込み + 並び替え */}
+      <ListToolbar
+        activeTab={activeTab}
+        onChangeTab={setActiveTab}
+        countOf={countOf}
+        sort={sort}
+        onChangeSort={handleChangeSort}
+      />
 
       {/* 一覧 */}
       {!loaded ? (
@@ -127,6 +123,7 @@ export const WatchList: React.FC<WatchListProps> = ({
             <WatchCard
               key={watch.id}
               watch={watch}
+              highlighted={watch.id === highlightedId}
               onTriggerCheck={onTriggerCheck}
               onTogglePause={onTogglePause}
               onOpenDiff={onOpenDiff}

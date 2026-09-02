@@ -43,8 +43,11 @@ export default function App() {
   // ログイン前に共有された場合もあるため、ログインが済むまで持ち越す。
   const [sharedUrl, setSharedUrl] = useState<string | null>(null);
   const [pendingCreateIntent, setPendingCreateIntent] = useState<CreateIntent | null>(null);
+  // 登録直後の監視を数秒だけ光らせるための ID
+  const [highlightedWatchId, setHighlightedWatchId] = useState<string | null>(null);
   const launchLinkRead = useRef(false);
   const toastTimer = useRef<number | null>(null);
+  const highlightTimer = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -52,6 +55,21 @@ export default function App() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMessage(null), 3000);
   }, []);
+
+  // 登録した監視を数秒だけ目立たせる。どれが増えたのか一覧の中で見失わないようにするため。
+  const highlightWatch = useCallback((id: string) => {
+    setHighlightedWatchId(id);
+    if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlightedWatchId(null), 5000);
+  }, []);
+
+  // 消し込みのタイマーが残ったままログアウトなどで消えると、外れた state を触ることになる
+  useEffect(
+    () => () => {
+      if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+    },
+    []
+  );
 
   // 起動時のリンク（通知タップ・共有シート）を 1 度だけ読む。
   // これらは「クエリを読み取って URL から消す」副作用を伴うため、useState の初期化子には置けない。
@@ -189,9 +207,13 @@ export default function App() {
 
   // アクションハンドラー
   const handleCreateWatch = async (data: CreateWatchDto) => {
-    await api.createWatch(data);
+    const created = await api.createWatch(data);
     showToast('新しい監視対象を登録しました！');
-    fetchData();
+    // 検索語が残っていると、登録したばかりの監視がその場で隠れてしまう
+    setSearch('');
+    // 一覧に並んでから光らせる。先に光らせても、まだそのカードは描かれていない。
+    await fetchData();
+    highlightWatch(created.id);
   };
 
   const handleUpdateWatch = async (
@@ -260,6 +282,7 @@ export default function App() {
           watches={watches}
           loaded={watchesLoaded}
           search={search}
+          highlightedId={highlightedWatchId}
           onTriggerCheck={handleTriggerCheck}
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}

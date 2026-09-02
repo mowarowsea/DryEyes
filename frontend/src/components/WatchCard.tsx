@@ -17,6 +17,8 @@ import { apiUrl } from '../api';
 
 interface WatchCardProps {
   watch: WatchModel;
+  // 登録直後の数秒だけ true。どれが増えたのか一目で分かるようにする。
+  highlighted?: boolean;
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
@@ -56,6 +58,7 @@ const formatTime = (ts: number | null) => {
 
 export const WatchCard: React.FC<WatchCardProps> = ({
   watch,
+  highlighted = false,
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
@@ -68,6 +71,14 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [faviconFailed, setFaviconFailed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // 並び順によっては登録した監視が画面の外に入る（既定の更新日時順では末尾に付く）。
+  // 光らせるだけでは気づけないので、その位置まで一緒に運ぶ。
+  useEffect(() => {
+    if (!highlighted) return;
+    cardRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, [highlighted]);
 
   // URL を差し替えると ?url= の中身も変わるので、ブラウザは自動で新しいアイコンを取りに行く
   const faviconUrl = faviconUrlOf(watch.url);
@@ -98,7 +109,8 @@ export const WatchCard: React.FC<WatchCardProps> = ({
 
   // 未読の判定・件数は一覧のフィルタと同じ関数を使う（食い違うと件数とバッジがずれる）
   const unviewedCount = unviewedCountOf(watch);
-  const highlight = unviewedCount > 0 && !watch.paused;
+  // 未読ありの強調（highlighted は登録直後の強調で、別物）
+  const emphasizeUnviewed = unviewedCount > 0 && !watch.paused;
 
   // ステータス（停止中・エラーのときだけ出し、通常時は行を使わない）
   let statusBadge: React.ReactNode = null;
@@ -126,6 +138,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
 
   return (
     <div
+      ref={cardRef}
       role="button"
       tabIndex={0}
       aria-label={`${watch.title} の変更点を見る`}
@@ -154,9 +167,11 @@ export const WatchCard: React.FC<WatchCardProps> = ({
       className={`relative text-left bg-white dark:bg-slate-900 border rounded-xl px-3 py-2.5 shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 cursor-pointer transition ${
         menuOpen ? 'z-30' : 'active:scale-[0.995]'
       } ${
-        highlight
-          ? 'border-amber-300 dark:border-amber-500/50'
-          : 'border-slate-200/80 dark:border-slate-800'
+        highlighted
+          ? 'border-indigo-400 dark:border-indigo-400/70 animate-justAdded'
+          : emphasizeUnviewed
+            ? 'border-amber-300 dark:border-amber-500/50'
+            : 'border-slate-200/80 dark:border-slate-800'
       } ${deleting ? 'opacity-50 pointer-events-none' : ''}`}
     >
       <div className="flex items-center gap-2">
