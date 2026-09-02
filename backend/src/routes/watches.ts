@@ -192,19 +192,21 @@ watchesRouter.get('/:id/diff', async (req, res) => {
 
     const latest = history[0];
 
-    // まだ一度もスナップショットが更新されていない場合は比較対象が無いので現在値だけ返す
-    if (history.length === 1) {
+    // 比較対象が無い（初回スナップショットのみ）か、最新まで確認済みで見るべき変更が残っていない場合は、
+    // 過去の差分を蒸し返さず現在保持している値だけを返す。
+    const upToDate = !!state && state.snapshotTimestamp >= latest.timestamp;
+    if (history.length === 1 || upToDate) {
       const current = await changedetectionClient.getSnapshot(watchId, latest.timestamp);
-      const initial: WatchDiffResponse = {
+      const currentOnly: WatchDiffResponse = {
         watchId, from: null, to: latest.timestamp, lines: [], added: 0, removed: 0, truncated: false,
-        hasUnviewed: false, lastViewedAt, snapshotCount: 1,
+        hasUnviewed: false, lastViewedAt, snapshotCount: history.length,
         currentPreview: splitSnapshotLines(current).slice(0, INITIAL_PREVIEW_LINES),
       };
-      return res.json(initial);
+      return res.json(currentOnly);
     }
 
     // 比較元は「既読にした時点以前で最も新しいスナップショット」。
-    // 未読が無い / 記録が無い場合は直前のスナップショットと比較して直近の変更を見せる。
+    // 既読の記録が無い場合は直前のスナップショットと比較して直近の変更を見せる。
     const viewedBaseline = state
       ? history.find((h) => h.timestamp <= state.snapshotTimestamp)
       : undefined;
@@ -222,7 +224,7 @@ watchesRouter.get('/:id/diff', async (req, res) => {
       from: baseline.timestamp,
       to: latest.timestamp,
       ...diff,
-      hasUnviewed: !state || state.snapshotTimestamp < latest.timestamp,
+      hasUnviewed: true, // 上で確認済みのケースは返し終えているので、ここに来るのは未読のときだけ
       lastViewedAt,
       snapshotCount: history.length,
     };

@@ -69,6 +69,8 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
   if (!isOpen || !watch) return null;
 
   const hasChanges = !!diff && diff.lines.length > 0;
+  // 初回スナップショットのみ、または既に確認済みで見るべき差分が無いときは現在値だけを見せる
+  const showsCurrentOnly = !!diff && (diff.snapshotCount <= 1 || (diff.currentPreview?.length ?? 0) > 0);
   const isInitialOnly = !!diff && diff.snapshotCount <= 1;
 
   return (
@@ -122,11 +124,12 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
         ) : error ? (
           // エラー内容はモーダル共通のエラー帯に出ているので、本文は空にする
           null
-        ) : isInitialOnly ? (
+        ) : showsCurrentOnly ? (
           <div className="p-4 sm:p-5">
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
-              まだ最初のスナップショットしかないため、比較できる変更はありません。
-              現在監視している内容は次のとおりです。
+              {isInitialOnly
+                ? 'まだ最初のスナップショットしかないため、比較できる変更はありません。現在監視している内容は次のとおりです。'
+                : 'この更新はすでに確認済みです。現在監視している内容は次のとおりです。'}
             </p>
             <pre className="text-[11px] font-mono bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-3 whitespace-pre-wrap break-all leading-relaxed text-slate-600 dark:text-slate-300 max-h-72 overflow-y-auto">
               {(diff?.currentPreview || []).join('\n') || '（内容が取得できませんでした）'}
@@ -139,12 +142,6 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
           </div>
         ) : (
           <div className="px-2 sm:px-3 py-3">
-            {!diff!.hasUnviewed && (
-              <p className="mx-1.5 mb-2 text-[11px] text-slate-400 dark:text-slate-500">
-                未読の変更はありません。直近の変更内容を表示しています。
-              </p>
-            )}
-
             <div className="font-mono text-[11px] sm:text-xs leading-relaxed">
               {diff!.lines.map((line, idx) => {
                 if (line.type === 'gap') {

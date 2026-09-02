@@ -116,6 +116,26 @@ describe('DiffModal', () => {
     expect(screen.getByText(/第111話/)).toBeInTheDocument();
   });
 
+  it('shows only the current value once the change has already been viewed', async () => {
+    vi.spyOn(api, 'getDiff').mockResolvedValue({
+      ...diff,
+      from: null,
+      lines: [],
+      added: 0,
+      removed: 0,
+      hasUnviewed: false,
+      snapshotCount: 3,
+      currentPreview: ['第112話', '第111話'],
+    });
+
+    render(<DiffModal watch={watch} isOpen onClose={vi.fn()} onViewed={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/すでに確認済み/)).toBeInTheDocument());
+    // 見終わった差分は蒸し返さず、いま保持している内容だけを見せる
+    expect(screen.getByText(/第112話/)).toBeInTheDocument();
+    expect(screen.queryByText(/変更なし/)).not.toBeInTheDocument();
+  });
+
   it('shows the error message when the diff cannot be loaded', async () => {
     vi.spyOn(api, 'getDiff').mockRejectedValue(new Error('差分の取得に失敗しました'));
 

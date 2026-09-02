@@ -113,5 +113,5 @@ export interface WatchDiff {
   hasUnviewed: boolean;
   lastViewedAt: string | null;
   snapshotCount: number;
-  currentPreview?: string[]; // 初回スナップショットのみの場合の現在値
+  currentPreview?: string[]; // 差分を出さない（初回のみ／確認済み）場合の現在値
 }

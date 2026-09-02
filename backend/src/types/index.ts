@@ -123,7 +123,7 @@ export interface WatchDiffResponse extends DiffResult {
   hasUnviewed: boolean; // まだ確認していない変更があるか
   lastViewedAt: string | null; // 最後に既読にした日時 (ISO8601)
   snapshotCount: number;
-  // 比較対象が無い（初回スナップショットのみ）ときに現在の内容を数行だけ返す
+  // 差分を出さない（初回スナップショットのみ／確認済み）ときに、現在保持している内容を数行だけ返す
   currentPreview?: string[];
 }
 
