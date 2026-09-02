@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Header } from './components/Header';
+import { SearchHeader } from './components/SearchHeader';
+import { AccountModal } from './components/AccountModal';
+import { AccountFab, CreateFab } from './components/FloatingActions';
 import { WatchList } from './components/WatchList';
 import { CreateWatchModal } from './components/CreateWatchModal';
 import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
@@ -27,6 +29,9 @@ export default function App() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  // 検索語は固定ヘッダ側の入力欄が持ち主。一覧には結果の絞り込みだけを渡す。
+  const [search, setSearch] = useState('');
   const [editTargetWatch, setEditTargetWatch] = useState<WatchModel | null>(null);
   const [copyTargetWatch, setCopyTargetWatch] = useState<WatchModel | null>(null);
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
@@ -252,23 +257,19 @@ export default function App() {
   const userTopic = ntfy?.topic || user?.ntfyTopic || '';
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans pb-12">
-      <Header
-        health={health}
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans pb-24">
+      <SearchHeader
+        value={search}
+        onChange={setSearch}
         loading={loading}
-        user={user}
-        ntfy={ntfy}
-        theme={theme}
-        onChangeTheme={handleChangeTheme}
         onRefresh={() => fetchData()}
-        onOpenCreateModal={() => setIsCreateModalOpen(true)}
-        onLogout={handleLogout}
       />
 
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6">
         <WatchList
           watches={watches}
           loaded={watchesLoaded}
+          search={search}
           onTriggerCheck={handleTriggerCheck}
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
@@ -278,6 +279,10 @@ export default function App() {
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
         />
       </main>
+
+      {/* フロートボタン */}
+      {user && <AccountFab user={user} onClick={() => setIsAccountModalOpen(true)} />}
+      <CreateFab onClick={() => setIsCreateModalOpen(true)} />
 
       {/* モーダル */}
       <CreateWatchModal
@@ -312,6 +317,19 @@ export default function App() {
         onClose={() => setDiffTargetWatch(null)}
         onViewed={() => fetchData(true)}
       />
+
+      {user && (
+        <AccountModal
+          isOpen={isAccountModalOpen}
+          onClose={() => setIsAccountModalOpen(false)}
+          user={user}
+          ntfy={ntfy}
+          health={health}
+          theme={theme}
+          onChangeTheme={handleChangeTheme}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* トースト通知 */}
       {toastMessage && (

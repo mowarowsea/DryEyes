@@ -108,6 +108,7 @@ describe('一覧の並び', () => {
       <WatchList
         watches={watches}
         loaded
+        search=""
         onTriggerCheck={noop}
         onTogglePause={noop}
         onOpenDiff={() => undefined}
@@ -136,6 +137,7 @@ describe('一覧の並び', () => {
       <WatchList
         watches={[{ ...first, lastChecked: 1_700_100_000 }, second]}
         loaded
+        search=""
         onTriggerCheck={noop}
         onTogglePause={noop}
         onOpenDiff={() => undefined}

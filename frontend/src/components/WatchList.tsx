@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, EyeOff, Layers } from 'lucide-react';
+import { EyeOff, Layers } from 'lucide-react';
 import { WatchModel } from '../types';
 import { WatchCard } from './WatchCard';
 import { isUnviewed } from '../watchStatus';
@@ -8,6 +8,8 @@ interface WatchListProps {
   watches: WatchModel[];
   // 初回の取得が終わったか。終わるまでは「1 件も無い」と決めつけない。
   loaded: boolean;
+  // 検索語。入力欄は固定ヘッダ側にあるので、値だけを受け取る。
+  search: string;
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
@@ -29,6 +31,7 @@ const TABS: { key: FilterTab; label: string }[] = [
 export const WatchList: React.FC<WatchListProps> = ({
   watches,
   loaded,
+  search,
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
@@ -37,7 +40,6 @@ export const WatchList: React.FC<WatchListProps> = ({
   onCopyTo,
   onOpenCreateModal,
 }) => {
-  const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
 
   const filteredWatches = useMemo(() => {
@@ -71,21 +73,9 @@ export const WatchList: React.FC<WatchListProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* 検索 & フィルタ */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-          <input
-            type="text"
-            placeholder="タイトルやURLで検索..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition shadow-sm"
-          />
-        </div>
-
-        {/* タブ */}
-        <div className="flex items-center space-x-1 bg-slate-200/60 dark:bg-slate-800 p-1 rounded-xl text-xs font-medium self-start sm:self-auto">
+      {/* フィルタ */}
+      <div className="flex">
+        <div className="flex items-center space-x-1 bg-slate-200/60 dark:bg-slate-800 p-1 rounded-xl text-xs font-medium overflow-x-auto">
           {TABS.map(({ key, label }) => (
             <button
               key={key}
