@@ -77,6 +77,27 @@ describe('ChangedetectionClient', () => {
     ]);
   });
 
+  it('should read the topic out of a notification url that carries click and avatar params', async () => {
+    // 通知 URL は ntfy://host/<topic>?click=…&avatar_url=… の形で、パラメータの中身は
+    // パーセントエンコード済み（「/」を含まない）。クエリを落とさずに末尾を取ると
+    // トピック名にクエリごと入り、設定変更で保存したときに別トピックへ化ける。
+    mockAxiosInstance.get
+      .mockResolvedValueOnce({ data: { 'uuid-1': { url: 'https://example.com/', title: 'Example' } } })
+      .mockResolvedValueOnce({
+        data: {
+          url: 'https://example.com/',
+          title: 'Example',
+          notification_urls: [
+            `ntfy://host.docker.internal:8085/dryeyes-mowa-ab12cd-manga?${CLICK}&${AVATAR}`,
+          ],
+        },
+      });
+
+    const [watch] = await client.listWatches();
+
+    expect(watch.notificationTopic).toBe('dryeyes-mowa-ab12cd-manga');
+  });
+
   it('should keep listing a watch whose detail could not be fetched', async () => {
     mockAxiosInstance.get
       .mockResolvedValueOnce({

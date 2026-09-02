@@ -13,8 +13,11 @@ services:
       - PLAYWRIGHT_DRIVER_URL=ws://sockpuppetbrowser:3000
       - BASE_URL=http://localhost:5000
       - HIDE_REFERER=true
+    # BFF と同じホストからしか使わないので、ループバックに閉じる。
+    # LAN へ出したままだと、同じネットワークに居る誰でも changedetection.io の
+    # API と UI を直接叩けてしまう（DryEyes のログインを一切通らずに）。
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     # ntfy は別ネットワークのコンテナなので、ホスト経由で到達できるようにする
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -32,9 +35,10 @@ services:
       - SCREEN_HEIGHT=1080
       - SCREEN_DEPTH=16
       - MAX_CONCURRENT_CHROME_PROCESSES=10
-    # 監視対象ピッカーもクロールと同じブラウザで描画するため、BFF から直接つなげるようにする
+    # 監視対象ピッカーもクロールと同じブラウザで描画するため、BFF から直接つなげるようにする。
+    # ここは CDP（ブラウザを遠隔操作する口）なので、外に開いたままにはしない。
     ports:
-      - "3020:3000"
+      - "127.0.0.1:3020:3000"
     restart: unless-stopped
 
 volumes:

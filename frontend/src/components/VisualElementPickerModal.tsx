@@ -17,6 +17,19 @@ import { useEscapeToClose } from './Modal';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { apiUrl } from '../api';
 
+// プレビューする iframe に与える権限。
+//
+// allow-same-origin は付けない。付けるとこのフレームが DryEyes 自身と同じオリジンになり、
+// プレビュー中のページの JS から localStorage のログイントークンが読めてしまう。
+// 外してもフレームは独立したオリジンになるだけで、Inspector とのやり取り
+// （どちらも postMessage の宛先が '*'）はそのまま通る。
+//
+// 遷移まわりは「書いていないフラグ」が効いている。allow-top-navigation が無いので
+// 画面ごとの遷移は、allow-popups が無いので別タブは、allow-forms が無いので
+// フォーム送信は、どれもブラウザ側で止まる。残るのは「フレーム内で自分自身が
+// 別ページに変わる」経路だけで、そこは注入した Inspector が受け持つ。
+const PREVIEW_SANDBOX = 'allow-scripts';
+
 interface SelectedElementData {
   xpath: string;
   similarXPath: string;
@@ -266,7 +279,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             }}
             className="w-full h-full border-none bg-white dark:bg-slate-900"
             title="Page Preview"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox={PREVIEW_SANDBOX}
           />
         </div>
 

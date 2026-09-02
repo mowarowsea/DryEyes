@@ -127,7 +127,7 @@ export const api = {
 
   // --- 監視 -------------------------------------------------------------
   async getHealth(): Promise<HealthStatus> {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await request('/health');
     if (!res.ok) throw new Error('Failed to fetch health status');
     return res.json();
   },

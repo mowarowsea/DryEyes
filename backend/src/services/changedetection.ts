@@ -499,7 +499,13 @@ export class ChangedetectionClient {
 
     let topic = '';
     if (data.notification_urls && Array.isArray(data.notification_urls) && data.notification_urls.length > 0) {
-      const match = String(data.notification_urls[0]).match(/\/([^/]+)$/);
+      // 通知 URL は ntfy://host:port/<topic>?click=…&avatar_url=… の形。
+      // click / avatar_url の中身はパーセントエンコード済みで「/」を含まないため、
+      // クエリを落とす前に末尾を取ると、トピック名にクエリごと持って行かれる。
+      // そのまま画面へ返すと設定変更の通知先欄にクエリが出て、保存すると
+      // 別トピックへ書き換わり（＝通知が届かなくなる）。
+      const withoutQuery = String(data.notification_urls[0]).split('?')[0];
+      const match = withoutQuery.match(/\/([^/]+)$/);
       if (match) topic = match[1];
     }
 

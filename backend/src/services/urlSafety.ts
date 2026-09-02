@@ -123,3 +123,79 @@ export function hostChanged(fromUrl: string, toUrl: string): boolean {
     return true;
   }
 }
+
+// ---------------------------------------------------------------------------
+// プロキシ（ピッカーのプレビューとファビコン取得）の宛先チェック
+// ---------------------------------------------------------------------------
+//
+// リダイレクト追従と違い、ここは「ユーザーが監視したい URL」を受ける口なので、
+// 内部アドレスを一律に弾くと LAN 上の機器（NAS の管理画面など）を監視できなくなる。
+// DryEyes 自体が LAN で動かすツールである以上、それは塞ぎすぎ。
+//
+// そこで遮断するのは、ユーザーが監視対象として指したいはずのない宛先だけに絞る。
+//   - ループバック: BFF と同じホストに居る changedetection.io (:5000) と
+//     sockpuppetbrowser の CDP (:3020)。プロキシ経由で叩かれると、
+//     この 2 つを 127.0.0.1 に閉じ込めた意味が無くなる。
+//   - リンクローカル: クラウドのメタデータエンドポイント (169.254.169.254)。
+// 192.168.0.0/16 や 10.0.0.0/8 は通す。
+
+const LOOPBACK_IPV4 = [
+  /^127\./,
+  /^0\./, // 0.0.0.0 は多くの実装でループバック扱いになる
+  /^169\.254\./,
+];
+
+// 名前解決するまでもなくループバックと分かるホスト名
+const LOOPBACK_HOSTNAME = /(^|\.)localhost$/i;
+
+export function isLoopbackAddress(address: string): boolean {
+  const host = address.toLowerCase().replace(/^\[|\]$/g, '');
+
+  if (host.includes(':')) {
+    if (host === '::' || host === '::1') return true;
+    if (/^fe[89ab]/.test(host)) return true; // fe80::/10 リンクローカル
+    const mapped = host.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isLoopbackAddress(mapped[1]);
+    return false;
+  }
+
+  return LOOPBACK_IPV4.some((re) => re.test(host));
+}
+
+/**
+ * プロキシで取りに行ってよい URL かを確かめる。危険なら例外を投げる。
+ * 通ってよい範囲は上のコメントのとおりで、LAN 内のアドレスは意図的に許可する。
+ */
+export async function assertSafeProxyTarget(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('取得できない URL です');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('http(s) 以外の URL は取得しません');
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+  if (LOOPBACK_HOSTNAME.test(hostname) || isLoopbackAddress(hostname)) {
+    throw new Error('この端末自身を指す URL は取得しません');
+  }
+
+  // 外部ドメインをループバックへ向ける手口（localtest.me など）を塞ぐ。
+  // IP リテラルは上で判定済みなので、名前のときだけ引く。
+  if (!/^[\d.]+$/.test(hostname) && !hostname.includes(':')) {
+    let addresses: { address: string }[];
+    try {
+      addresses = await dns.lookup(hostname, { all: true });
+    } catch {
+      throw new Error(`名前を解決できませんでした: ${hostname}`);
+    }
+    if (addresses.some((a) => isLoopbackAddress(a.address))) {
+      throw new Error('この端末自身へ解決されるホストです');
+    }
+  }
+
+  return parsed;
+}

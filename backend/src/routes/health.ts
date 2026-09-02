@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import { changedetectionClient } from '../services/changedetection.js';
+import { requireAuth } from '../middleware/auth.js';
 import { config } from '../config.js';
 
 export const healthRouter = Router();
 
-healthRouter.get('/', async (_req, res) => {
+// 接続先 URL や changedetection.io の systeminfo を含むので、ログイン済みにだけ返す。
+// 画面がこれを使うのはログイン後のダッシュボードだけなので、公開する理由が無い。
+healthRouter.get('/', requireAuth, async (_req, res) => {
   let changedetectionStatus = 'disconnected';
   let systemInfo = null;
 

@@ -18,6 +18,8 @@ const OK_TTL_MS = 24 * 60 * 60 * 1000;
 // 見つからなかったサイトを毎回叩きに行かないよう、失敗も短めにキャッシュする
 const FAIL_TTL_MS = 60 * 60 * 1000;
 const MAX_BYTES = 512 * 1024;
+// オリジン単位なので増え方は緩いが、際限なく持つ理由も無い（cardImage 側と同じ扱い）
+const CACHE_LIMIT = 200;
 const HTML_TIMEOUT_MS = 6000;
 const ICON_TIMEOUT_MS = 6000;
 
@@ -58,6 +60,11 @@ export async function getFavicon(pageUrl: string): Promise<FaviconAsset | null> 
   const task = loadFavicon(pageUrl, origin)
     .catch(() => null)
     .then((asset) => {
+      if (cache.size >= CACHE_LIMIT) {
+        // Map は挿入順なので、いちばん古い 1 件を捨てれば足りる
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined) cache.delete(oldest);
+      }
       cache.set(origin, {
         asset,
         expiresAt: Date.now() + (asset ? OK_TTL_MS : FAIL_TTL_MS),

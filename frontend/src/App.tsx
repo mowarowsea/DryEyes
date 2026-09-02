@@ -74,6 +74,7 @@ export default function App() {
   useEffect(
     () => () => {
       if (highlightTimer.current !== null) window.clearTimeout(highlightTimer.current);
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     },
     []
   );

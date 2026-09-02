@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  assertSafeProxyTarget,
   assertSafeRedirectTarget,
   baseHost,
   hostChanged,
+  isLoopbackAddress,
   isPrivateAddress,
   isTrivialRedirect,
   normalizeForCompare,
@@ -107,5 +109,49 @@ describe('assertSafeRedirectTarget', () => {
 
   it('should refuse a URL it cannot parse', async () => {
     await expect(assertSafeRedirectTarget('not a url')).rejects.toThrow();
+  });
+});
+
+describe('isLoopbackAddress', () => {
+  it('should separate loopback and link-local from the rest of the private space', () => {
+    expect(isLoopbackAddress('127.0.0.1')).toBe(true);
+    expect(isLoopbackAddress('0.0.0.0')).toBe(true);
+    expect(isLoopbackAddress('169.254.169.254')).toBe(true); // クラウドのメタデータ
+    expect(isLoopbackAddress('::1')).toBe(true);
+    expect(isLoopbackAddress('fe80::1')).toBe(true);
+    expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
+
+    // LAN の機器は監視対象になりうるので、ここでは通す側に置く
+    expect(isLoopbackAddress('192.168.0.5')).toBe(false);
+    expect(isLoopbackAddress('10.1.2.3')).toBe(false);
+    expect(isLoopbackAddress('fd00::1')).toBe(false);
+    expect(isLoopbackAddress('93.184.216.34')).toBe(false);
+  });
+});
+
+describe('assertSafeProxyTarget', () => {
+  it('should refuse non-http(s) schemes', async () => {
+    await expect(assertSafeProxyTarget('file:///etc/passwd')).rejects.toThrow();
+    await expect(assertSafeProxyTarget('ftp://example.com/a')).rejects.toThrow();
+  });
+
+  it('should refuse the host DryEyes itself runs on', async () => {
+    // ここを通すと、127.0.0.1 に閉じた changedetection.io (:5000) と
+    // sockpuppetbrowser の CDP (:3020) にプロキシ経由で手が届いてしまう
+    await expect(assertSafeProxyTarget('http://localhost:5000/api/v1/watch')).rejects.toThrow();
+    await expect(assertSafeProxyTarget('http://127.0.0.1:3020/json/version')).rejects.toThrow();
+    await expect(assertSafeProxyTarget('http://[::1]/a')).rejects.toThrow();
+    await expect(assertSafeProxyTarget('http://169.254.169.254/latest/meta-data')).rejects.toThrow();
+  });
+
+  it('should allow LAN addresses so devices on the network can still be watched', async () => {
+    // リダイレクト追従と違い、ここはユーザーが「監視したい」と指した URL を受ける口。
+    // NAS の管理画面のような LAN 内のページまで塞ぐと、塞ぎすぎになる。
+    await expect(assertSafeProxyTarget('http://192.168.0.5/status')).resolves.toBeInstanceOf(URL);
+    await expect(assertSafeProxyTarget('http://10.1.2.3:8080/')).resolves.toBeInstanceOf(URL);
+  });
+
+  it('should refuse a URL it cannot parse', async () => {
+    await expect(assertSafeProxyTarget('not a url')).rejects.toThrow();
   });
 });

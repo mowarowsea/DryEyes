@@ -11,5 +11,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // テストは vitest が TypeScript のまま実行するので、dist へ出す必要が無い
+  "exclude": ["src/**/__tests__/**"]
 }

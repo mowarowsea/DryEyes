@@ -96,3 +96,14 @@ describe('ntfy topic helpers', () => {
     );
   });
 });
+
+describe('scopeTopicToUser（保存済みの値を読み戻したとき）', () => {
+  it('should not let leftover query parameters become part of the topic', () => {
+    // 通知 URL から読み戻した値がクエリ付きのまま戻ってきても、トピック名は元のまま保つ。
+    // ここで混ざると購読中のトピックとズレ、通知が黙って届かなくなる。
+    const userTopic = 'dryeyes-mowa-ab12cd';
+    const readBack = `${userTopic}-manga?click=http%3A%2F%2F192.168.0.10%3A3010%2F`;
+
+    expect(scopeTopicToUser(userTopic, readBack)).toBe(`${userTopic}-manga`);
+  });
+});

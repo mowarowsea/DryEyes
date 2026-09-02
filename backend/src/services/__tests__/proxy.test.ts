@@ -30,6 +30,27 @@ describe('fetchProxyPage', () => {
     expect(result).toContain('dryeyes-inspect-hover');
   });
 
+  it('should escape the target url before putting it in the base tag', async () => {
+    // url はクエリからそのまま来るので、属性を閉じて <script> を差し込む余地を残さない
+    const rawHtml = `<html><head></head><body></body></html>`;
+    (axios.get as any).mockResolvedValueOnce({ data: rawHtml });
+
+    const result = await fetchProxyPage('https://example.com/"><script>alert(1)</script>');
+
+    expect(result).not.toContain('"><script>alert(1)</script>');
+    expect(result).toContain('&quot;&gt;&lt;script&gt;');
+  });
+
+  it('should keep a query string usable after escaping the base tag', async () => {
+    // & は &amp; になるが、属性値の解析でそのまま元へ戻るので href は壊れない
+    const rawHtml = `<html><head></head><body></body></html>`;
+    (axios.get as any).mockResolvedValueOnce({ data: rawHtml });
+
+    const result = await fetchProxyPage('https://example.com/list?a=1&b=2');
+
+    expect(result).toContain('<base href="https://example.com/list?a=1&amp;b=2">');
+  });
+
   it('should inject the inspector into <head> before the page own scripts', async () => {
     const rawHtml = `<!DOCTYPE html><html><head><script src="/app.js"></script></head><body><a href="/next">Next</a></body></html>`;
     (axios.get as any).mockResolvedValueOnce({ data: rawHtml });

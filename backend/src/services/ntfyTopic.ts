@@ -27,7 +27,9 @@ export function buildUserTopic(username: string, userId: string, prefix: string)
 // 監視ごとのトピックを、必ずそのユーザーのトピック配下に閉じ込める。
 // これにより別ユーザーが同じ表示名で監視を作っても通知が混ざらない。
 export function scopeTopicToUser(userTopic: string, watchTopic?: string): string {
-  const requested = (watchTopic || '').trim();
+  // 保存済みの通知 URL から読み戻した値がクエリを引きずっていても、
+  // それをトピック名に混ぜない（トピックに ? 以降が入る余地は無い）
+  const requested = (watchTopic || '').split('?')[0].trim();
   // 未指定、またはユーザートピックそのものなら、そのユーザーの共通トピックへ送る
   if (!requested || requested === userTopic) return userTopic;
   // 既にスコープ済み（保存済み監視の更新など）ならそのまま使う

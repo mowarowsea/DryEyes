@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { renderPageHtml, RENDER_USER_AGENT } from './browserRender.js';
+import { escapeHtml } from './htmlMeta.js';
 
 // 注入する Element Inspector スクリプト。
 // <head> の先頭に置いて、ページ自身のスクリプトより先にリスナーを登録する。
@@ -486,7 +487,10 @@ export async function fetchProxyPage(
   // <base href="..."> を挿入して相対パス（画像やCSS）を正しく読み込ませる。
   // Inspector はページ自身のスクリプトより先に動く必要があるので、同じ位置（<head> の先頭）へ入れる。
   const darkInjection = dark ? DARK_PREVIEW_INJECTION : '';
-  const headInjection = `<base href="${targetUrl}">${INSPECTOR_SCRIPT}${darkInjection}${modeScript}`;
+  // targetUrl はクエリからそのまま来るので、属性値として必ずエスケープする。
+  // クエリ付き URL の & も実体参照になるが、属性値の解析時に元へ戻るので href は壊れない。
+  const headInjection =
+    `<base href="${escapeHtml(targetUrl)}">${INSPECTOR_SCRIPT}${darkInjection}${modeScript}`;
   const headMatch = html.match(/<head[^>]*>/i);
   const htmlMatch = html.match(/<html[^>]*>/i);
   if (headMatch) {

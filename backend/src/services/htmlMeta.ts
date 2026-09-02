@@ -1,6 +1,17 @@
-// HTML を文字列のまま拾い読みするための共有ヘルパー。
+// HTML を文字列のまま扱うための共有ヘルパー。
 // BFF は DOM パーサーを持たない（依存を増やさない）ため、favicon と
 // カード画像のどちらも <link> / <meta> を正規表現で読む。
+
+// 外から来た文字列を HTML に埋めるときのエスケープ。
+// & を先に置き換えないと、後から足した実体参照まで壊れる。
+export function escapeHtml(value: string): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // タグ文字列から属性値をひとつ取り出す。値は "…" / '…' / 裸のいずれもありうる。
 export function attributeOf(tag: string, name: string): string | null {

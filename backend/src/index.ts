@@ -17,7 +17,31 @@ const CLOUDFLARE_RETRY_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 const app = express();
 
-app.use(cors());
+// 画面は Vite（3010）越しに /api を叩くので、ブラウザから見れば同一オリジンになり
+// CORS は本来出番が無い。直接 3001 を叩く場合のために口は残しつつ、
+// 任意のサイトから API を読まれないよう出せる相手を絞る。
+//
+// Origin を持たない要求（ntfy のスマホアプリが通知アイコンを取りに来る、curl での確認など）は
+// ブラウザ発ではないので通す。CORS はブラウザに読ませてよいかを答える仕組みでしかない。
+const allowedOrigins = new Set(
+  [
+    config.app.baseUrl,
+    `http://localhost:${config.app.port}`,
+    `http://127.0.0.1:${config.app.port}`,
+  ].map((url) => {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return url;
+    }
+  })
+);
+
+app.use(
+  cors({
+    origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
+  })
+);
 app.use(express.json());
 
 // API Routes
