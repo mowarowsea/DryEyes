@@ -41,6 +41,7 @@ describe('WatchCard', () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onCopyTo={vi.fn()}
+        onReviewRedirect={vi.fn()}
         {...handlers}
       />
     );
@@ -133,6 +134,7 @@ describe('WatchCard', () => {
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onCopyTo={vi.fn()}
+        onReviewRedirect={vi.fn()}
       />
     );
 
@@ -178,5 +180,32 @@ describe('WatchCard', () => {
     fireEvent.error(container.querySelector('img')!);
 
     expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('shows a banner for a detected move and opens the review instead of the diff', () => {
+    const handleReview = vi.fn();
+    const handleOpenDiff = vi.fn();
+    renderCard(
+      {
+        pendingRedirect: {
+          fromUrl: 'https://example.com/product',
+          toUrl: 'https://example.other/product',
+          chain: ['https://example.com/product', 'https://example.other/product'],
+          status: 301,
+          permanent: true,
+          hostChanged: true,
+          detectedAt: '2026-09-01T00:00:00.000Z',
+          selectorFound: true,
+          toTitle: null,
+        },
+      },
+      { onReviewRedirect: handleReview, onOpenDiff: handleOpenDiff }
+    );
+
+    fireEvent.click(screen.getByText(/example.other へ転送されています/));
+
+    expect(handleReview).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
+    // 帯はカードの中にあるので、素通しだと差分まで開いてしまう
+    expect(handleOpenDiff).not.toHaveBeenCalled();
   });
 });

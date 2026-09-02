@@ -115,6 +115,7 @@ describe('一覧の並び', () => {
         onEdit={() => undefined}
         onDelete={noop}
         onCopyTo={() => undefined}
+        onReviewRedirect={() => undefined}
         onOpenCreateModal={() => undefined}
       />
     );
@@ -144,6 +145,7 @@ describe('一覧の並び', () => {
         onEdit={() => undefined}
         onDelete={noop}
         onCopyTo={() => undefined}
+        onReviewRedirect={() => undefined}
         onOpenCreateModal={() => undefined}
       />
     );

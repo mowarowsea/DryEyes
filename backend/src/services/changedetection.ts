@@ -328,6 +328,19 @@ export class ChangedetectionClient {
     return updated;
   }
 
+  // 監視先 URL だけを差し替える（リダイレクト追従で使う）。
+  // フィルタも通知も触らないため、これまでの履歴とスナップショットはそのまま引き継がれる。
+  // 移転先が同じ内容のミラーなら、差し替えても差分は出ない ＝ 監視が途切れない。
+  async updateWatchUrl(uuid: string, url: string): Promise<void> {
+    try {
+      await this.client.put(`/api/v1/watch/${uuid}`, { url });
+    } catch (err: any) {
+      throw wrapApiError(err, 'changedetection.io への監視 URL 更新に失敗しました');
+    }
+    // URL は一覧 API にも出るが、更新直後に必ず引き直させるため明示的に捨てる
+    this.invalidateDetail(uuid);
+  }
+
   // 監視削除
   async deleteWatch(uuid: string): Promise<void> {
     await this.client.delete(`/api/v1/watch/${uuid}`);

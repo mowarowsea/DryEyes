@@ -22,6 +22,8 @@ export interface WatchModel {
   hasUnviewed?: boolean; // まだ確認していない変更があるか
   unviewedCount?: number; // 最後に差分を確認してから更新が検知された回数
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
+  // リダイレクトを検知して、監視先の変更を確認している状態（承認するまで URL は変わらない）
+  pendingRedirect?: RedirectProposal | null;
 }
 
 export interface CreateWatchDto {
@@ -114,4 +116,21 @@ export interface WatchDiff {
   lastViewedAt: string | null;
   snapshotCount: number;
   currentPreview?: string[]; // 差分を出さない（初回のみ／確認済み）場合の現在値
+}
+
+// ---------------------------------------------------------------------------
+// リダイレクト追従（監視先の移転）
+// ---------------------------------------------------------------------------
+
+// 監視対象が別 URL へリダイレクトしていたときに、BFF が積んでおく確認待ちの提案
+export interface RedirectProposal {
+  fromUrl: string;
+  toUrl: string;
+  chain: string[]; // 経由した URL（fromUrl と toUrl を含む）
+  status: number; // 最初のリダイレクトのステータス (301/302/307/308 など)
+  permanent: boolean; // 301 / 308 か（恒久的な移転として案内してよいか）
+  hostChanged: boolean; // ホストが変わったか（別ドメインへの移動）
+  detectedAt: string; // ISO8601
+  selectorFound: boolean | null; // 遷移先で監視中の要素が見つかったか（null は未確認）
+  toTitle: string | null; // 遷移先ページのタイトル
 }

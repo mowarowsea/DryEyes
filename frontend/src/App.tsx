@@ -7,6 +7,7 @@ import { CreateWatchModal } from './components/CreateWatchModal';
 import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
 import { CopyWatchModal } from './components/CopyWatchModal';
 import { DiffModal } from './components/DiffModal';
+import { RedirectReviewModal } from './components/RedirectReviewModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
@@ -34,6 +35,8 @@ export default function App() {
   const [editTargetWatch, setEditTargetWatch] = useState<WatchModel | null>(null);
   const [copyTargetWatch, setCopyTargetWatch] = useState<WatchModel | null>(null);
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
+  // 監視先が別 URL へ転送されていたときの確認モーダル
+  const [redirectTargetWatch, setRedirectTargetWatch] = useState<WatchModel | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
@@ -258,6 +261,20 @@ export default function App() {
     showToast(`「${result.title}」を ${result.username} 用にコピーしました`);
   };
 
+  // 検知した移転を承認して、監視先を転送先の URL へ差し替える
+  const handleAcceptRedirect = async (id: string, always: boolean) => {
+    await api.acceptRedirect(id, always);
+    showToast(always ? '監視先を変更しました。以後この行き来は自動で切り替えます' : '監視先を変更しました');
+    fetchData();
+  };
+
+  // 移転を却下して、監視先を元の URL のままにする
+  const handleDismissRedirect = async (id: string, always: boolean) => {
+    await api.dismissRedirect(id, always);
+    showToast(always ? '監視先はそのままにしました。以後この転送は知らせません' : '監視先はそのままにしました');
+    fetchData();
+  };
+
   // トークン検証中は画面のちらつきを避けるため何も出さない
   if (authState === 'booting') {
     return (
@@ -288,6 +305,7 @@ export default function App() {
           onOpenDiff={(w) => setDiffTargetWatch(w)}
           onEdit={(w) => setEditTargetWatch(w)}
           onCopyTo={(w) => setCopyTargetWatch(w)}
+          onReviewRedirect={(w) => setRedirectTargetWatch(w)}
           onDelete={handleDeleteWatch}
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
         />
@@ -322,6 +340,14 @@ export default function App() {
         isOpen={!!copyTargetWatch}
         onClose={() => setCopyTargetWatch(null)}
         onSubmit={handleCopyWatchTo}
+      />
+
+      <RedirectReviewModal
+        watch={redirectTargetWatch}
+        isOpen={!!redirectTargetWatch}
+        onClose={() => setRedirectTargetWatch(null)}
+        onAccept={handleAcceptRedirect}
+        onDismiss={handleDismissRedirect}
       />
 
       <DiffModal

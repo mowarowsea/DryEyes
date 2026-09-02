@@ -8,6 +8,7 @@ import {
   Play,
   RefreshCw,
   Settings2,
+  Signpost,
   Trash2,
 } from 'lucide-react';
 import { WatchModel } from '../types';
@@ -25,7 +26,18 @@ interface WatchCardProps {
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
+  // 監視先が別 URL へ転送されていたときの確認を開く
+  onReviewRedirect: (watch: WatchModel) => void;
 }
+
+// 転送先の見分けはホストで付くので、帯にはそこだけ出す
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 
 // 監視対象サイトのファビコン。
 // /favicon.ico を直接読むと、そこに置いていないサイトや UA を見て弾くサイトで取れないため、
@@ -65,6 +77,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onEdit,
   onDelete,
   onCopyTo,
+  onReviewRedirect,
 }) => {
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -291,6 +304,24 @@ export const WatchCard: React.FC<WatchCardProps> = ({
         <span className="text-slate-300 dark:text-slate-600">/</span>
         <span>確認: {formatTime(watch.lastChecked)}</span>
       </div>
+
+      {/* 監視先の移転は、承認するまで反映されない。気づける場所に置いて確認へ誘導する。 */}
+      {watch.pendingRedirect && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReviewRedirect(watch);
+          }}
+          className="mt-1.5 ml-7 w-[calc(100%-1.75rem)] text-left text-[11px] bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-200 rounded-lg px-2 py-1 leading-relaxed flex items-center gap-1.5 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
+        >
+          <Signpost className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="flex-1 min-w-0 truncate">
+            {hostOf(watch.pendingRedirect.toUrl)} へ転送されています
+          </span>
+          <span className="flex-shrink-0 font-bold underline">確認</span>
+        </button>
+      )}
 
       {watch.lastError && (
         <div className="mt-1.5 ml-7 text-[11px] bg-rose-50 border border-rose-100 text-rose-600 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300 rounded-lg px-2 py-1 leading-relaxed line-clamp-2">

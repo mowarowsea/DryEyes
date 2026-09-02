@@ -121,3 +121,63 @@ export async function renderPageHtml(targetUrl: string, dark = false): Promise<s
     await browser?.close().catch(() => undefined);
   }
 }
+
+/**
+ * リダイレクト先のページで、その監視が見ている要素がまだ取れるかを確かめる。
+ *
+ * 移転先がミラーサイトなら同じセレクタで拾えるが、ドメイン失効後のパーキングページや
+ * ログイン要求ページへ飛ばされている場合は何も当たらない。監視先の差し替えを提案する前に
+ * ここで判定して、「監視している要素が見つかりません」と添えられるようにする。
+ *
+ * changedetection.io のフィルタは CSS と XPath が混在しうるので、両方を試す。
+ */
+export async function hasAnySelectorMatch(targetUrl: string, selectors: string[]): Promise<boolean> {
+  const targets = selectors.map((s) => s.trim()).filter(Boolean);
+  if (targets.length === 0) return false;
+
+  // BFF の tsconfig には DOM の型が無いため、ブラウザ側で動かすコードは文字列で持つ
+  const script = `(() => {
+    const selectors = ${JSON.stringify(targets)};
+    return selectors.some((raw) => {
+      const selector = raw.replace(/^xpath1?:/, '');
+      try {
+        if (selector.startsWith('/') || selector.startsWith('(')) {
+          const res = document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+          return res.snapshotLength > 0;
+        }
+        return document.querySelectorAll(selector).length > 0;
+      } catch (e) {
+        // 書き方が壊れているセレクタは「見つからなかった」と同じ扱いにする
+        return false;
+      }
+    });
+  })()`;
+
+  let browser: Browser | null = null;
+  try {
+    browser = await chromium.connectOverCDP(config.browser.wsUrl, { timeout: CONNECT_TIMEOUT_MS });
+    const context = await browser.newContext({
+      userAgent: RENDER_USER_AGENT,
+      locale: 'ja-JP',
+      viewport: { width: 1280, height: 900 },
+    });
+    const page = await context.newPage();
+
+    const response = await page.goto(targetUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: NAVIGATION_TIMEOUT_MS,
+    });
+    if (!response) throw new Error('ページを開けませんでした');
+    await page.waitForLoadState('load', { timeout: LOAD_TIMEOUT_MS }).catch(() => undefined);
+
+    // クロールと同じ条件で見るため、遅延読み込みもここで起こしておく
+    await page.evaluate(LAZY_LOAD_SCROLL_JS);
+    await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
+
+    const found = await page.evaluate<boolean>(script);
+    await context.close().catch(() => undefined);
+    return Boolean(found);
+  } finally {
+    await browser?.close().catch(() => undefined);
+  }
+}

@@ -11,6 +11,8 @@ import {
   pruneViewStates,
 } from '../services/viewState.js';
 import { diffSnapshots, splitSnapshotLines } from '../services/diff.js';
+import { clearRedirectState, getPendingRedirect, pruneRedirectState } from '../services/redirectReview.js';
+import { acceptPendingRedirect, dismissPendingRedirect } from '../services/redirectScan.js';
 import { requireAuth } from '../middleware/auth.js';
 import { CreateWatchDto, UpdateWatchDto, WatchDiffResponse, WatchModel } from '../types/index.js';
 
@@ -34,13 +36,14 @@ function ensureOwned(watchId: string, userId: string, res: Response): boolean {
   return false;
 }
 
-// changedetection.io は既読を持たないため、DryEyes 側の既読状態を合成して返す
+// changedetection.io は既読も「移転の確認待ち」も持たないため、DryEyes 側の状態を合成して返す
 function withViewState(watch: WatchModel, userId: string): WatchModel {
   return {
     ...watch,
     hasUnviewed: hasUnviewedChange(userId, watch.id, watch.lastChanged),
     unviewedCount: countUnviewedChanges(userId, watch.id, watch.snapshotCount, watch.lastChanged),
     lastViewedAt: getViewState(userId, watch.id)?.viewedAt ?? null,
+    pendingRedirect: getPendingRedirect(watch.id),
   };
 }
 
@@ -51,6 +54,7 @@ watchesRouter.get('/', async (req, res) => {
     // changedetection.io 側で直接消された監視の情報を掃除する
     pruneMissing(watches.map((w) => w.id));
     pruneViewStates(watches.map((w) => w.id));
+    pruneRedirectState(watches.map((w) => w.id));
     res.json(
       watches.filter((w) => isOwnedBy(w.id, req.user!.id)).map((w) => withViewState(w, req.user!.id))
     );
@@ -142,6 +146,7 @@ watchesRouter.delete('/:id', async (req, res) => {
     await changedetectionClient.deleteWatch(req.params.id);
     releaseOwner(req.params.id);
     clearViewStates(req.params.id);
+    clearRedirectState(req.params.id);
     res.status(204).send();
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to delete watch', message: err.message });
@@ -248,5 +253,34 @@ watchesRouter.post('/:id/viewed', async (req, res) => {
     res.json({ success: true, ...state });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to mark as viewed', message: err.message });
+  }
+});
+
+// 検知した移転を承認して、監視先を差し替える。
+// always を立てると、以後この行き先ホストへの移動は確認なしで追従する
+// （example.com ⇄ example.other のように行き来するミラーサイト向け）。
+watchesRouter.post('/:id/redirect/accept', async (req, res) => {
+  const watchId = req.params.id;
+  if (!ensureOwned(watchId, req.user!.id, res)) return;
+
+  try {
+    const proposal = await acceptPendingRedirect(watchId, Boolean(req.body?.always));
+    res.json({ success: true, url: proposal.toUrl });
+  } catch (err: any) {
+    res.status(upstreamStatus(err)).json({ error: 'Failed to accept redirect', message: err.message });
+  }
+});
+
+// 移転を却下して、監視先を元の URL のままにする。
+// always を立てると、以後この行き先への移動は提案しない。
+watchesRouter.post('/:id/redirect/dismiss', (req, res) => {
+  const watchId = req.params.id;
+  if (!ensureOwned(watchId, req.user!.id, res)) return;
+
+  try {
+    const proposal = dismissPendingRedirect(watchId, Boolean(req.body?.always));
+    res.json({ success: true, url: proposal.fromUrl });
+  } catch (err: any) {
+    res.status(400).json({ error: 'Failed to dismiss redirect', message: err.message });
   }
 });

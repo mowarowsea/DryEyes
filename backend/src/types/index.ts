@@ -22,6 +22,8 @@ export interface WatchModel {
   hasUnviewed?: boolean; // 未読の変更があるか
   unviewedCount?: number; // 最後に差分を確認してから更新が検知された回数
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
+  // リダイレクトを検知して、監視先の変更をユーザーへ確認している状態（承認されるまで URL は変えない）
+  pendingRedirect?: RedirectProposal | null;
 }
 
 export interface CreateWatchDto {
@@ -138,4 +140,36 @@ export interface WatchViewState {
 
 export interface ViewStateStoreData {
   views: Record<string, WatchViewState>; // `${userId}:${watchId}`
+}
+
+// ---------------------------------------------------------------------------
+// リダイレクト追従（監視先の移転）
+// ---------------------------------------------------------------------------
+
+// 監視対象がリダイレクトしていたときに、ユーザーへ確認する提案。
+// 自動では書き換えず、承認されて初めて監視 URL を差し替える。
+export interface RedirectProposal {
+  fromUrl: string;
+  toUrl: string;
+  chain: string[]; // 経由した URL（fromUrl と toUrl を含む）
+  status: number; // 最後のリダイレクトのステータス (301/302/307/308 など)
+  permanent: boolean; // 301 / 308 か
+  hostChanged: boolean; // ホストが変わったか（別ドメインへの移動）
+  detectedAt: string; // ISO8601
+  // 遷移先で監視中のセレクタが見つかったか。
+  // null は「確認していない／セレクタを設定していない監視」。
+  selectorFound: boolean | null;
+  toTitle: string | null; // 遷移先ページのタイトル（別サイトへ飛ばされていないかの判断材料）
+}
+
+// 一度ユーザーが判断したホストは覚えておき、同じ行き来で毎回聞かない。
+// 例: example.com ⇄ example.other をちょくちょく往復するミラーサイト。
+export interface RedirectDecisions {
+  allowedHosts: string[]; // 承認済み。以後このホストへのリダイレクトは自動で追従する
+  deniedHosts: string[]; // 却下済み。以後このホストへのリダイレクトは提案しない
+}
+
+export interface RedirectStoreData {
+  pending: Record<string, RedirectProposal>; // watchId -> 未処理の提案
+  decisions: Record<string, RedirectDecisions>; // watchId -> 判断の記録
 }

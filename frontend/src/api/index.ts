@@ -213,4 +213,26 @@ export const api = {
     const res = await request(`/watches/${id}/viewed`, { method: 'POST' });
     if (!res.ok) throw new Error(await errorMessage(res, '既読の記録に失敗しました'));
   },
+
+  // 検知した移転を承認して監視先を差し替える。
+  // always を立てると、以後この行き先ドメインへの移動は確認なしで追従する。
+  async acceptRedirect(id: string, always: boolean): Promise<{ url: string }> {
+    const res = await request(`/watches/${id}/redirect/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ always }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '監視先の変更に失敗しました'));
+    return res.json();
+  },
+
+  // 移転を却下して元の URL のまま監視を続ける。
+  // always を立てると、以後この行き先への移動は提案されなくなる。
+  async dismissRedirect(id: string, always: boolean): Promise<{ url: string }> {
+    const res = await request(`/watches/${id}/redirect/dismiss`, {
+      method: 'POST',
+      body: JSON.stringify({ always }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '移転の却下に失敗しました'));
+    return res.json();
+  },
 };
