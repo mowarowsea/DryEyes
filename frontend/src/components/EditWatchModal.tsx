@@ -85,8 +85,6 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
     } else {
       setIncludeFilters(xpath);
     }
-    // 何が入ったか確かめられるよう、選び直したときだけ詳細を開く
-    setShowDetails(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
