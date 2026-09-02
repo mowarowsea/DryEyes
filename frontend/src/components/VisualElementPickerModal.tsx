@@ -11,6 +11,7 @@ import {
   Settings2,
   ShieldAlert,
   Sparkles,
+  Expand,
 } from 'lucide-react';
 import { useEscapeToClose } from './Modal';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
@@ -24,6 +25,8 @@ interface SelectedElementData {
   selector: string;
   text: string;
   tagName: string;
+  /** まだ外側の親要素へ広げられるか */
+  canExpand?: boolean;
 }
 
 interface VisualElementPickerModalProps {
@@ -135,6 +138,13 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     reloadPreview();
   };
 
+  // 狙いより内側の要素（リンクの中の span など）を掴んでしまったときの逃げ道。
+  // 選び直さずに一段ずつ外側へ広げる。結果は DRYEYES_ELEMENT_SELECTED で返ってくる。
+  const handleExpandSelection = () => {
+    const iframe = document.getElementById('dryeyes-preview-iframe') as HTMLIFrameElement | null;
+    iframe?.contentWindow?.postMessage({ type: 'DRYEYES_EXPAND_SELECTION' }, '*');
+  };
+
   const handleToggleSimilar = (toSimilar: boolean) => {
     if (!selectedElement) return;
     setTargetMode(toSimilar ? 'similar' : 'single');
@@ -163,6 +173,8 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   };
 
   const hasSimilarElements = (selectedElement?.similarCount ?? 0) > 1;
+  // canExpand を返さない古いプレビューでも拡大を試せるようにしておく
+  const canExpandSelection = !!selectedElement && selectedElement.canExpand !== false;
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
@@ -267,30 +279,52 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             </div>
           )}
 
-          {/* 類似要素切り替えボタン（要素選択後のみ） */}
-          {hasSimilarElements && (
-            <button
-              type="button"
-              onClick={() => handleToggleSimilar(targetMode !== 'similar')}
-              className={`w-full px-3 py-2.5 text-sm font-medium rounded-xl border transition flex items-center justify-center gap-2 ${
-                targetMode === 'similar'
-                  ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-500/40'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
-            >
-              <Layers
-                className={`w-4 h-4 flex-shrink-0 ${
-                  targetMode === 'similar'
-                    ? 'text-purple-600 dark:text-purple-400'
-                    : 'text-slate-400 dark:text-slate-500'
-                }`}
-              />
-              <span>
-                {targetMode === 'similar'
-                  ? `類似 ${selectedElement?.similarCount}件 ハイライト中`
-                  : `類似要素も監視（${selectedElement?.similarCount}件）`}
-              </span>
-            </button>
+          {/* 選択後の操作。選び直さずに済むよう、拡大と類似まとめをその場に並べる。 */}
+          {selectedElement && (canExpandSelection || hasSimilarElements) && (
+            <div className="flex items-stretch gap-2">
+              {canExpandSelection && (
+                <button
+                  type="button"
+                  onClick={handleExpandSelection}
+                  title="ひとつ外側の要素まで選択範囲を広げます"
+                  className={`px-3 py-2.5 text-sm font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-95 transition flex items-center justify-center gap-1.5 ${
+                    hasSimilarElements ? 'flex-shrink-0' : 'flex-1'
+                  }`}
+                >
+                  <Expand className="w-4 h-4 flex-shrink-0 text-slate-400 dark:text-slate-500" />
+                  <span className="whitespace-nowrap">選択範囲を拡大</span>
+                </button>
+              )}
+
+              {/* 一覧ものはここを押すかどうかで結果が大きく変わるので、はっきり見せる */}
+              {hasSimilarElements && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleSimilar(targetMode !== 'similar')}
+                  className={`flex-1 min-w-0 px-2.5 py-2.5 text-sm font-bold rounded-xl border-2 active:scale-95 transition flex items-center justify-center gap-2 ${
+                    targetMode === 'similar'
+                      ? 'bg-purple-600 text-white border-purple-600 shadow-md shadow-purple-200 dark:shadow-none'
+                      : 'bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-200 border-purple-300 dark:border-purple-500/50 hover:bg-purple-100 dark:hover:bg-purple-500/20'
+                  }`}
+                >
+                  {targetMode === 'similar' ? (
+                    <Check className="w-4 h-4 flex-shrink-0" />
+                  ) : (
+                    <Layers className="w-4 h-4 flex-shrink-0 text-purple-500 dark:text-purple-300" />
+                  )}
+                  <span className="whitespace-nowrap">類似要素も選択</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[11px] font-bold ${
+                      targetMode === 'similar'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-purple-600 text-white'
+                    }`}
+                  >
+                    {selectedElement?.similarCount}件
+                  </span>
+                </button>
+              )}
+            </div>
           )}
 
           {!selectedElement && (

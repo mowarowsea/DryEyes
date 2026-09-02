@@ -100,6 +100,20 @@ describe('fetchProxyPage', () => {
     expect(result).toContain('HTMLElement.prototype.click');
   });
 
+  // 狙いより内側の要素を掴んでしまったとき、選び直さずに外側へ広げられるようにする
+  it('should let the picker expand the selection to the parent element', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body></body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).toContain("DRYEYES_EXPAND_SELECTION");
+    expect(result).toContain('emitSelection(selectedEl.parentElement)');
+    // body より外まで広げても監視対象としては意味が無い
+    expect(result).toContain("el !== document.body");
+    // ボタンを出すかどうかを画面が決められるよう、広げられるかも一緒に返す
+    expect(result).toContain('canExpand: canExpand(target)');
+  });
+
   // 既定は軽い静的取得。重い描画は画面から頼まれたときだけにする。
   it('should not start a browser unless it is asked to', async () => {
     (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body>static</body></html>' });

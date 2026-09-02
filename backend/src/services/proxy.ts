@@ -8,6 +8,8 @@ const INSPECTOR_SCRIPT = `
 <script>
 (function() {
   let highlightedEl = null;
+  // 「選択範囲を拡大」で親へ辿れるよう、最後に選んだ要素を覚えておく
+  let selectedEl = null;
 
   // ハイライト用のオーバーレイスタイル
   const style = document.createElement('style');
@@ -60,6 +62,8 @@ const INSPECTOR_SCRIPT = `
       applyBatchHighlight(event.data.xpath);
     } else if (event.data.type === 'DRYEYES_CLEAR_HIGHLIGHT') {
       clearBatchHighlight();
+    } else if (event.data.type === 'DRYEYES_EXPAND_SELECTION') {
+      expandSelection();
     }
   });
 
@@ -300,16 +304,11 @@ const INSPECTOR_SCRIPT = `
     return texts;
   }
 
-  // クリック/タップ。
-  // window の capture に付けるのは、ここが最上流だから。ページが window に付けた
-  // リスナーより先に走って握り潰せるうえ、stopImmediatePropagation で document 以下へも流さない。
-  // このスクリプトは <head> の先頭にあるので、window 上でも必ずページより先に登録される。
-  window.addEventListener('click', function(e) {
-    e.preventDefault();
-    e.stopImmediatePropagation();
-
-    const target = e.target;
+  // 選んだ要素を親ウィンドウへ知らせる。クリックからも「選択範囲を拡大」からも通る。
+  function emitSelection(target) {
     if (!target || target.nodeType !== 1) return;
+    selectedEl = target;
+
     const exactXPath = getExactXPath(target);
     const similar = getSimilarXPath(target, exactXPath);
     const selector = getCssSelector(target);
@@ -325,9 +324,34 @@ const INSPECTOR_SCRIPT = `
         similarTexts: similarTexts.length > 0 ? similarTexts : [text],
         selector,
         text,
-        tagName: target.tagName.toLowerCase()
+        tagName: target.tagName.toLowerCase(),
+        // まだ外側へ広げられるか。body より外まで広げても監視対象としては意味が無い。
+        canExpand: canExpand(target)
       }
     }, '*');
+  }
+
+  function canExpand(el) {
+    const parent = el && el.parentElement;
+    return !!(parent && parent !== document.documentElement && el !== document.body);
+  }
+
+  // 狙いより内側（リンクの中の span など）を掴んでしまったときに、
+  // タップし直さずに一段ずつ外側の親要素へ広げる。
+  function expandSelection() {
+    if (!selectedEl || !canExpand(selectedEl)) return;
+    emitSelection(selectedEl.parentElement);
+  }
+
+  // クリック/タップ。
+  // window の capture に付けるのは、ここが最上流だから。ページが window に付けた
+  // リスナーより先に走って握り潰せるうえ、stopImmediatePropagation で document 以下へも流さない。
+  // このスクリプトは <head> の先頭にあるので、window 上でも必ずページより先に登録される。
+  window.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+
+    emitSelection(e.target);
   }, true);
 })();
 </script>
