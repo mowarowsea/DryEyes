@@ -33,6 +33,10 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 // 画像そのもののキャッシュ。カードは一覧に何十枚も並ぶので、毎回取りに行かせない。
 const IMAGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// 取れなかったときは短く切る。一覧を開くと同じ配信元へ数十枚まとめて取りに行くことになり、
+// 相手に絞られて数枚だけ落ちることがある。これを成功と同じ 24 時間覚えてしまうと、
+// URL は正しく決まっているのに丸一日そのカードだけ絵が出ない。
+const IMAGE_FAIL_TTL_MS = 10 * 60 * 1000;
 const IMAGE_CACHE_LIMIT = 100;
 
 export interface CardImageAsset {
@@ -214,7 +218,34 @@ function writeImageCache(url: string, asset: CardImageAsset | null): void {
     const oldest = imageCache.keys().next().value;
     if (oldest !== undefined) imageCache.delete(oldest);
   }
-  imageCache.set(url, { asset, expiresAt: Date.now() + IMAGE_CACHE_TTL_MS });
+  const ttl = asset ? IMAGE_CACHE_TTL_MS : IMAGE_FAIL_TTL_MS;
+  imageCache.set(url, { asset, expiresAt: Date.now() + ttl });
+}
+
+// 中身の先頭数バイトから画像の種類を判定する。
+// Content-Type を当てにできないため（カドコミの CDN は表紙を binary/octet-stream で返す）、
+// 実物を見て決める。判定できたものだけを画像として扱い、正しい種類を付けて画面へ返す。
+export function sniffImageType(data: Buffer): string | null {
+  const startsWith = (...bytes: number[]) => bytes.every((b, i) => data[i] === b);
+
+  if (startsWith(0xff, 0xd8, 0xff)) return 'image/jpeg';
+  if (startsWith(0x89, 0x50, 0x4e, 0x47)) return 'image/png';
+  if (startsWith(0x47, 0x49, 0x46, 0x38)) return 'image/gif';
+  if (startsWith(0x42, 0x4d)) return 'image/bmp';
+  // RIFF....WEBP
+  if (startsWith(0x52, 0x49, 0x46, 0x46) && data.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  // ISO-BMFF。ftyp のブランドで AVIF / HEIC を見分ける
+  if (data.toString('ascii', 4, 8) === 'ftyp') {
+    const brand = data.toString('ascii', 8, 12);
+    if (brand.startsWith('avif') || brand.startsWith('avis')) return 'image/avif';
+    if (brand.startsWith('heic') || brand.startsWith('heix')) return 'image/heic';
+  }
+  // SVG はテキストなので、先頭の宣言かルート要素で見る
+  const head = data.toString('utf8', 0, 256).trimStart();
+  if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) {
+    return 'image/svg+xml';
+  }
+  return null;
 }
 
 // 画像は BFF が代理で取る。Referer や UA を見て直リンクを弾くサイトがあるため、
@@ -238,10 +269,10 @@ async function fetchImage(imageUrl: string, pageUrl: string): Promise<CardImageA
       maxContentLength: MAX_IMAGE_BYTES,
     });
 
-    const contentType = String(res.headers['content-type'] || '').split(';')[0].trim();
     const data = Buffer.from(res.data);
-    if (data.length > 0 && data.length <= MAX_IMAGE_BYTES && contentType.startsWith('image/')) {
-      asset = { contentType, data };
+    const sniffed = data.length > 0 ? sniffImageType(data) : null;
+    if (sniffed && data.length <= MAX_IMAGE_BYTES) {
+      asset = { contentType: sniffed, data };
     }
   } catch {
     asset = null;

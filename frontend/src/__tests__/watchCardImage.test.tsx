@@ -79,3 +79,65 @@ describe('WatchCard のカード背景', () => {
     expect(screen.getByLabelText('操作メニュー').className).not.toContain('backdrop-blur-sm');
   });
 });
+
+// 取得中にカードが消えても結果を捨てない。捨てていたころは StrictMode の二重実行や
+// 一覧の自動更新のたびに取り直しになり、監視が多いと後ろのカードが延々と絵なしのままだった。
+describe('取得結果の共有', () => {
+  const watch: WatchModel = {
+    id: 'shared-1',
+    url: 'https://example.com/works/7',
+    title: '共有テスト',
+    fetchBackend: 'html_requests',
+    checkIntervalMinutes: 10,
+    paused: false,
+    lastChecked: null,
+    lastChanged: null,
+    hasError: false,
+    lastError: null,
+    includeFilters: [],
+    subtractedFilters: [],
+    notificationTopic: 'dryeyes',
+  };
+
+  const card = () => (
+    <WatchCard
+      watch={watch}
+      onTriggerCheck={vi.fn()}
+      onTogglePause={vi.fn()}
+      onOpenDiff={vi.fn()}
+      onEdit={vi.fn()}
+      onDelete={vi.fn()}
+      onCopyTo={vi.fn()}
+      onReviewRedirect={vi.fn()}
+    />
+  );
+
+  afterEach(() => {
+    cleanup();
+    forgetCardImage(watch.id);
+    vi.restoreAllMocks();
+  });
+
+  it('取得中に外して付け直しても、取りに行くのは 1 回だけ', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:shared');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+    let finish: (blob: Blob) => void = () => undefined;
+    const fetching = new Promise<Blob>((resolve) => {
+      finish = resolve;
+    });
+    const spy = vi.spyOn(api, 'getCardImageBlob').mockReturnValue(fetching as Promise<Blob | null>);
+
+    // 取得が終わらないうちにカードを外し、あらためて付け直す
+    const first = render(card());
+    first.unmount();
+    const second = render(card());
+
+    finish(new Blob(['x'], { type: 'image/png' }));
+
+    await waitFor(() =>
+      expect(second.container.querySelector('[style*="blob:shared"]')).not.toBeNull()
+    );
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});

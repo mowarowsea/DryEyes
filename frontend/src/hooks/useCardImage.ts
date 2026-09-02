@@ -8,6 +8,8 @@ import { api } from '../api';
 
 // watchId -> object URL（null は「この監視には絵が無い」と確定した印）
 const cached = new Map<string, string | null>();
+// 取得中のもの。同じ監視を二重に取りに行かないよう、進行中の Promise を共有する。
+const inflight = new Map<string, Promise<string | null>>();
 
 // 未解決の監視は BFF 側でページを開きに行くので、1 件あたり数十秒かかることがある。
 // 一覧を開いた瞬間に全カード分を投げるとブラウザの同時接続を食い潰し、
@@ -43,27 +45,34 @@ async function load(watchId: string): Promise<string | null> {
   }
 }
 
+// 取得は必ず最後までやり切って結果を覚える。
+// 呼び出し元が先に消えても捨てないのが要点で、以前はここで捨てていたために
+// StrictMode の二重実行や一覧の再描画のたびに取り直しになり、
+// 監視の件数が多いと後ろのカードがいつまでも絵にたどり着けなかった。
+function acquireImage(watchId: string): Promise<string | null> {
+  if (cached.has(watchId)) return Promise.resolve(cached.get(watchId) ?? null);
+
+  const already = inflight.get(watchId);
+  if (already) return already;
+
+  const task = load(watchId).then((resolved) => {
+    cached.set(watchId, resolved);
+    inflight.delete(watchId);
+    return resolved;
+  });
+  inflight.set(watchId, task);
+  return task;
+}
+
 /** カード背景の object URL。まだ取れていない・絵が無い監視では null。 */
 export function useCardImage(watchId: string): string | null {
   const [url, setUrl] = useState<string | null>(() => cached.get(watchId) ?? null);
 
   useEffect(() => {
-    if (cached.has(watchId)) {
-      setUrl(cached.get(watchId) ?? null);
-      return;
-    }
-
     let alive = true;
-    load(watchId).then((resolved) => {
-      // 取得中に別の監視へ差し替わったら、作った object URL は解放して捨てる
-      if (!alive) {
-        if (resolved) URL.revokeObjectURL(resolved);
-        return;
-      }
-      cached.set(watchId, resolved);
-      setUrl(resolved);
+    acquireImage(watchId).then((resolved) => {
+      if (alive) setUrl(resolved);
     });
-
     return () => {
       alive = false;
     };
@@ -77,4 +86,5 @@ export function forgetCardImage(watchId: string): void {
   const url = cached.get(watchId);
   if (url) URL.revokeObjectURL(url);
   cached.delete(watchId);
+  inflight.delete(watchId);
 }

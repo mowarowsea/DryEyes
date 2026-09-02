@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { extractSocialImageUrls } from '../htmlMeta.js';
 import { buildCardImageScript } from '../browserRender.js';
+import { sniffImageType } from '../cardImage.js';
 
 describe('extractSocialImageUrls', () => {
   it('og:image を拾う', () => {
@@ -52,5 +53,46 @@ describe('buildCardImageScript', () => {
     const script = buildCardImageScript([]);
     expect(script).toContain('[]');
     expect(() => new Function(`return ${script};`)).not.toThrow();
+  });
+});
+
+describe('sniffImageType', () => {
+  // Content-Type を当てにできない配信元がある（カドコミの CDN は表紙を
+  // binary/octet-stream で返してくる）ので、中身で判定する。
+  const bytes = (...b: number[]) => Buffer.from([...b, ...new Array(32).fill(0)]);
+
+  it('JPEG / PNG / GIF を見分ける', () => {
+    expect(sniffImageType(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe('image/jpeg');
+    expect(sniffImageType(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a))).toBe('image/png');
+    expect(sniffImageType(bytes(0x47, 0x49, 0x46, 0x38, 0x39, 0x61))).toBe('image/gif');
+  });
+
+  it('WebP を RIFF ヘッダーごと見分ける', () => {
+    const webp = Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([0, 0, 0, 0]),
+      Buffer.from('WEBPVP8 '),
+    ]);
+    expect(sniffImageType(webp)).toBe('image/webp');
+    // RIFF だが WEBP ではないもの（wav など）は画像として扱わない
+    const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0, 0, 0, 0]), Buffer.from('WAVEfmt ')]);
+    expect(sniffImageType(wav)).toBeNull();
+  });
+
+  it('AVIF を ftyp ブランドで見分ける', () => {
+    const avif = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from('ftypavif'), Buffer.alloc(16)]);
+    expect(sniffImageType(avif)).toBe('image/avif');
+  });
+
+  it('SVG はテキストとして見分ける', () => {
+    expect(sniffImageType(Buffer.from('  <svg xmlns="http://www.w3.org/2000/svg"></svg>'))).toBe(
+      'image/svg+xml'
+    );
+    expect(sniffImageType(Buffer.from('<?xml version="1.0"?><svg></svg>'))).toBe('image/svg+xml');
+  });
+
+  it('画像でないものは弾く（404 の HTML が 200 で返ってくることがある）', () => {
+    expect(sniffImageType(Buffer.from('<!DOCTYPE html><html><body>Not Found'))).toBeNull();
+    expect(sniffImageType(Buffer.alloc(0))).toBeNull();
   });
 });
