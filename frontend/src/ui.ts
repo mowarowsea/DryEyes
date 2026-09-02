@@ -29,3 +29,6 @@ export const cancelButtonClass =
 // モーダル下部の主ボタン（登録する／保存する／コピーを作成）
 export const submitButtonClass =
   'px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center gap-1.5';
+
+// セレクトボックス。入力欄と同じ枠に、右端の矢印ぶんだけ余白を足したもの
+export const selectClass = `${inputClass} pr-8 appearance-none cursor-pointer`;

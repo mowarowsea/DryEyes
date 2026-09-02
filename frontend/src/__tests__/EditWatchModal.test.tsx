@@ -41,16 +41,32 @@ const renderModal = (onSubmit = vi.fn().mockResolvedValue(undefined)) => {
 
 const save = () => fireEvent.click(screen.getByText('変更を保存する'));
 
+// XPath と通知トピックは「詳細」の中に畳まれている
+const openDetails = () => fireEvent.click(screen.getByText('詳細'));
+
 describe('EditWatchModal', () => {
   it('prefills every current setting, URL included', () => {
     renderModal();
 
     expect(screen.getByDisplayValue('https://example.com/manga/1')).toBeInTheDocument();
     expect(screen.getByDisplayValue('ぐらんぶる')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('60')).toBeInTheDocument();
+    expect(screen.getByLabelText('チェック間隔')).toHaveValue('60');
+
+    openDetails();
     expect(screen.getByDisplayValue('//*[@id="list"]')).toBeInTheDocument();
     // 通知トピックはユーザートピックを除いた識別子だけを見せる
     expect(screen.getByDisplayValue('manga')).toBeInTheDocument();
+  });
+
+  it('keeps XPath and topic folded away until 詳細 is opened', () => {
+    renderModal();
+
+    expect(screen.queryByDisplayValue('//*[@id="list"]')).not.toBeInTheDocument();
+    // 畳んだままでも、いま何を監視しているかは要約で分かる
+    expect(screen.getByText(/監視する要素 1件/)).toBeInTheDocument();
+
+    openDetails();
+    expect(screen.getByDisplayValue('//*[@id="list"]')).toBeInTheDocument();
   });
 
   it('saves a new URL and asks for a recheck so the new content becomes a diff', async () => {
@@ -84,6 +100,7 @@ describe('EditWatchModal', () => {
   it('asks for a recheck when the monitored elements changed', async () => {
     const onSubmit = renderModal();
 
+    openDetails();
     fireEvent.change(screen.getByDisplayValue('//*[@id="list"]'), {
       target: { value: '//*[@id="chapters"]' },
     });
@@ -99,7 +116,7 @@ describe('EditWatchModal', () => {
     fireEvent.change(screen.getByDisplayValue('ぐらんぶる'), {
       target: { value: 'ぐらんぶる（更新チェック）' },
     });
-    fireEvent.click(screen.getByText('30分'));
+    fireEvent.change(screen.getByLabelText('チェック間隔'), { target: { value: '30' } });
     save();
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
@@ -110,6 +127,23 @@ describe('EditWatchModal', () => {
         checkIntervalMinutes: 30,
         url: 'https://example.com/manga/1',
       }),
+      { recheck: false }
+    );
+  });
+
+  it('lets the interval be typed in freely when no preset fits', async () => {
+    const onSubmit = renderModal();
+
+    // 「分を指定...」を選ぶと数値の入力欄が出る
+    expect(screen.queryByLabelText('チェック間隔（分）')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('チェック間隔'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('チェック間隔（分）'), { target: { value: '15' } });
+    save();
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit).toHaveBeenCalledWith(
+      'watch-1',
+      expect.objectContaining({ checkIntervalMinutes: 15 }),
       { recheck: false }
     );
   });

@@ -1,5 +1,6 @@
 import React from 'react';
-import { choiceButtonClass } from '../ui';
+import { ChevronDown } from 'lucide-react';
+import { choiceButtonClass, inputClass, selectClass } from '../ui';
 
 // チェック間隔のプリセット。登録画面と設定変更画面の両方で同じ選択肢を出す。
 // （片方だけに項目を足すと、登録した間隔が編集画面で選び直せなくなる）
@@ -31,3 +32,57 @@ export const IntervalPicker: React.FC<IntervalPickerProps> = ({ value, onChange 
     ))}
   </div>
 );
+
+// 設定変更画面のように縦の余白を詰めたい場所で使う、同じ選択肢のセレクト版。
+// プリセットに無い値（登録後に自由入力で決めた間隔など）はそのまま数値入力に落とす。
+const CUSTOM = 'custom';
+
+export const IntervalSelect: React.FC<IntervalPickerProps> = ({ value, onChange }) => {
+  const [isCustom, setIsCustom] = React.useState(
+    () => !INTERVAL_PRESETS.some((preset) => preset.value === value)
+  );
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`relative min-w-0 ${isCustom ? 'w-32 flex-shrink-0' : 'flex-1'}`}>
+        <select
+          aria-label="チェック間隔"
+          value={isCustom ? CUSTOM : String(value)}
+          onChange={(e) => {
+            if (e.target.value === CUSTOM) {
+              setIsCustom(true);
+              return;
+            }
+            setIsCustom(false);
+            onChange(Number(e.target.value));
+          }}
+          className={selectClass}
+        >
+          {INTERVAL_PRESETS.map((preset) => (
+            <option key={preset.value} value={preset.value}>
+              {preset.label}ごと
+            </option>
+          ))}
+          <option value={CUSTOM}>分を指定...</option>
+        </select>
+        <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+      </div>
+
+      {isCustom && (
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <input
+            type="number"
+            min={1}
+            aria-label="チェック間隔（分）"
+            value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className={`${inputClass} min-w-0`}
+          />
+          <span className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap flex-shrink-0">
+            分ごと
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};

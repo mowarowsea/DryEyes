@@ -1,9 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Clock, Target, FileText, Bell, Save, Link2, MousePointerClick } from 'lucide-react';
+import {
+  Clock,
+  Target,
+  FileText,
+  Bell,
+  Save,
+  Link2,
+  MousePointerClick,
+  ChevronRight,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { WatchModel } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
 import { Modal } from './Modal';
-import { IntervalPicker } from './IntervalPicker';
+import { IntervalSelect } from './IntervalPicker';
 import { cancelButtonClass, inputClass, monoInputClass, submitButtonClass } from '../ui';
 
 /** 保存時にそのまま再チェックまで走らせるかどうか */
@@ -45,6 +55,8 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
   const [subtractedFilters, setSubtractedFilters] = useState('');
   const [topicSuffix, setTopicSuffix] = useState('');
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  // XPath と通知トピックは手で直すことがほとんど無いので、既定では畳んでおく
+  const [showDetails, setShowDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +70,7 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
     setSubtractedFilters(watch.subtractedFilters.join('\n'));
     setTopicSuffix(suffixOf(watch.notificationTopic || '', userTopic));
     setIsPickerOpen(false);
+    setShowDetails(false);
     setError(null);
   }, [isOpen, watch, userTopic]);
 
@@ -72,6 +85,8 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
     } else {
       setIncludeFilters(xpath);
     }
+    // 何が入ったか確かめられるよう、選び直したときだけ詳細を開く
+    setShowDetails(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,10 +139,36 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
 
   const urlChanged = url.trim() !== watch.url;
 
+  // 詳細を畳んだままでも、いま何を見ている設定なのかは分かるようにしておく
+  const includeCount = toLines(includeFilters).length;
+  const subtractedCount = toLines(subtractedFilters).length;
+  const detailSummary = [
+    includeCount ? `監視する要素 ${includeCount}件` : 'ページ全体',
+    subtractedCount ? `除外 ${subtractedCount}件` : null,
+    topicSuffix.trim() ? `通知先 -${topicSuffix.trim()}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ・ ');
+
   return (
     <>
       <Modal isOpen={isOpen} onClose={onClose} title="設定を変更" subtitle={watch.title} error={error}>
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1">
+          {/* 表示名 */}
+          <div>
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center">
+              <FileText className="w-3.5 h-3.5 mr-1 text-slate-400" />
+              表示名
+            </label>
+            <input
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+
           {/* 監視対象URL */}
           <div>
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center">
@@ -149,19 +190,20 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
             )}
           </div>
 
-          {/* 表示名 */}
+          {/* 監視する場所の選び直し。ここが一番よく使う操作なので目立たせる */}
           <div>
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center">
-              <FileText className="w-3.5 h-3.5 mr-1 text-slate-400" />
-              表示名
-            </label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className={inputClass}
-            />
+            <button
+              type="button"
+              onClick={() => setIsPickerOpen(true)}
+              disabled={!url.trim()}
+              className="w-full px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-40 disabled:active:scale-100 transition rounded-xl shadow-sm shadow-indigo-200 dark:shadow-none flex items-center justify-center gap-1.5"
+            >
+              <MousePointerClick className="w-4 h-4" />
+              画面から選ぶ
+            </button>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 text-center">
+              ページを開いて、監視したい部分をタップで選び直せます
+            </p>
           </div>
 
           {/* チェック間隔 */}
@@ -170,82 +212,78 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
               <Clock className="w-3.5 h-3.5 mr-1 text-slate-400" />
               チェック間隔
             </label>
-            <IntervalPicker value={intervalMinutes} onChange={setIntervalMinutes} />
-            <div className="mt-2 flex items-center gap-2">
-              <div className="w-24 flex-shrink-0">
-                <input
-                  type="number"
-                  min={1}
-                  value={intervalMinutes}
-                  onChange={(e) => setIntervalMinutes(Number(e.target.value))}
-                  className={inputClass}
-                />
-              </div>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                分ごとにチェック
+            <IntervalSelect value={intervalMinutes} onChange={setIntervalMinutes} />
+          </div>
+
+          {/* 詳細（XPath / 別トピック）。ふだんは畳んでおく */}
+          <div className="border border-slate-200/80 dark:border-slate-700 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowDetails((prev) => !prev)}
+              aria-expanded={showDetails}
+              className="w-full px-3 py-2.5 flex items-center gap-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition"
+            >
+              <ChevronRight
+                className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${
+                  showDetails ? 'rotate-90' : ''
+                }`}
+              />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex-shrink-0">
+                詳細
               </span>
-            </div>
-          </div>
+              {!showDetails && (
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate ml-auto">
+                  {detailSummary}
+                </span>
+              )}
+            </button>
 
-          {/* 監視・除外セレクタ */}
-          <div className="space-y-3 p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 rounded-xl">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center">
-                <Target className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                特定要素の監視・除外設定（XPath / CSS Selector）
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsPickerOpen(true)}
-                disabled={!url.trim()}
-                className="px-2.5 py-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 disabled:opacity-40 rounded-lg transition flex items-center gap-1 flex-shrink-0"
-              >
-                <MousePointerClick className="w-3.5 h-3.5" />
-                画面から選ぶ
-              </button>
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                監視する要素（改行区切り）
-              </label>
-              <textarea
-                rows={2}
-                placeholder="//*[@id='...']"
-                value={includeFilters}
-                onChange={(e) => setIncludeFilters(e.target.value)}
-                className={monoInputClass}
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                除外する要素（改行区切り）
-              </label>
-              <textarea
-                rows={2}
-                placeholder=".advertisement, .timestamp"
-                value={subtractedFilters}
-                onChange={(e) => setSubtractedFilters(e.target.value)}
-                className={monoInputClass}
-              />
-            </div>
-          </div>
-
-          {/* 通知先 */}
-          <div>
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center">
-              <Bell className="w-3.5 h-3.5 mr-1 text-indigo-500" />
-              この監視だけ別トピックに分ける（任意）
-            </label>
-            <input
-              type="text"
-              placeholder="空欄なら自分専用トピックにまとめて通知"
-              value={topicSuffix}
-              onChange={(e) => setTopicSuffix(e.target.value)}
-              className={monoInputClass}
-            />
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 truncate">
-              通知先: {topicSuffix.trim() ? `${userTopic}-${topicSuffix.trim()}` : userTopic}
-            </p>
+            {showDetails && (
+              <div className="px-3 pb-3 pt-3 space-y-3 border-t border-slate-100 dark:border-slate-800">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1 flex items-center">
+                    <Target className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                    監視する要素（XPath / CSS Selector・改行区切り）
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="//*[@id='...']"
+                    value={includeFilters}
+                    onChange={(e) => setIncludeFilters(e.target.value)}
+                    className={monoInputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                    除外する要素（改行区切り）
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder=".advertisement, .timestamp"
+                    value={subtractedFilters}
+                    onChange={(e) => setSubtractedFilters(e.target.value)}
+                    className={monoInputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1 flex items-center">
+                    <Bell className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                    この監視だけ別トピックに分ける（任意）
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="空欄なら自分専用トピックにまとめて通知"
+                    value={topicSuffix}
+                    onChange={(e) => setTopicSuffix(e.target.value)}
+                    className={monoInputClass}
+                  />
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 truncate">
+                    通知先: {topicSuffix.trim() ? `${userTopic}-${topicSuffix.trim()}` : userTopic}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* フッター */}
