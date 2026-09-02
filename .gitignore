@@ -8,3 +8,6 @@ build/
 
 # ユーザー・セッション・監視の所有者情報（ローカル運用の実データ）
 backend/data/
+
+.claude/
+request.md
