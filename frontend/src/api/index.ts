@@ -199,7 +199,11 @@ export const api = {
   // <img src> で直接読めないのは、このエンドポイントが Authorization を要求するため
   // （ファビコンと違い、監視 ID から本人の監視内容が見えることになるので認証を外せない）。
   async getCardImageBlob(id: string): Promise<Blob | null> {
-    const res = await request(`/watches/${id}/card-image`);
+    // cache: 'no-cache' で必ずサーバーへ問い合わせる。同じ URL のまま中身が変わりうるので、
+    // ブラウザのキャッシュに寝かせると絵を採り直しても古いままになる
+    // （実際、監視ごとの表紙に直したあとも共通画像が出続けた）。
+    // 変わっていなければ ETag で 304 が返るだけなので、転送は起きない。
+    const res = await request(`/watches/${id}/card-image`, { cache: 'no-cache' });
     if (!res.ok) return null;
     return res.blob();
   },

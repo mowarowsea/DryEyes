@@ -1,4 +1,5 @@
 import axios from 'axios';
+import crypto from 'node:crypto';
 import { JsonStore } from './store.js';
 import { extractSocialImageUrls } from './htmlMeta.js';
 import { findCardImageCandidates, RENDER_USER_AGENT } from './browserRender.js';
@@ -42,6 +43,8 @@ const IMAGE_CACHE_LIMIT = 100;
 export interface CardImageAsset {
   contentType: string;
   data: Buffer;
+  // 中身から作る検証子。取り直して別の絵になったかを、画面側の HTTP キャッシュに伝える。
+  etag: string;
 }
 
 const imageCache = new Map<string, { asset: CardImageAsset | null; expiresAt: number }>();
@@ -272,7 +275,8 @@ async function fetchImage(imageUrl: string, pageUrl: string): Promise<CardImageA
     const data = Buffer.from(res.data);
     const sniffed = data.length > 0 ? sniffImageType(data) : null;
     if (sniffed && data.length <= MAX_IMAGE_BYTES) {
-      asset = { contentType: sniffed, data };
+      const etag = `"${crypto.createHash('sha1').update(data).digest('base64url')}"`;
+      asset = { contentType: sniffed, data, etag };
     }
   } catch {
     asset = null;

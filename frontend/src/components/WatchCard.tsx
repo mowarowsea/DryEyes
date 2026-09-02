@@ -202,10 +202,8 @@ export const WatchCard: React.FC<WatchCardProps> = ({
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-0 rounded-xl overflow-hidden"
         >
-          {/* 上端を見せる。カードは横に細長いので、縦長の表紙を中央基準で切ると
-              絵の真ん中の帯だけが出て何の絵か分からなくなる。表紙はタイトルや顔が上にある。 */}
           <div
-            className="absolute inset-0 bg-cover bg-top opacity-80 dark:opacity-60"
+            className="absolute inset-0 bg-cover bg-center opacity-80 dark:opacity-60"
             style={{
               backgroundImage: `url(${cardImage})`,
               maskImage: CARD_IMAGE_MASK,

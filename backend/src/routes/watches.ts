@@ -158,20 +158,29 @@ watchesRouter.delete('/:id', async (req, res) => {
 // カードの背景に敷く画像。決められなければ 404 を返し、画面側は絵なしの見た目に戻す。
 // 画像を BFF が代理で取るのはファビコンと同じ理由で、Referer / UA を見て
 // 直リンクを弾くサイトが多いため。
+//
+// キャッシュは no-cache（＝毎回問い合わせて、変わっていなければ 304）にする。
+// 同じ URL のまま中身が変わりうるエンドポイントなので、max-age で寝かせてしまうと
+// 絵を採り直してもブラウザが期限切れまで古い絵を出し続ける。転送量は ETag で抑える。
 watchesRouter.get('/:id/card-image', async (req, res) => {
   if (!ensureOwned(req.params.id, req.user!.id, res)) return;
   try {
     const watch = await changedetectionClient.getWatch(req.params.id);
     const asset = await getCardImage(watch);
-    if (!asset) {
-      res.setHeader('Cache-Control', 'private, max-age=3600');
-      return res.status(404).end();
-    }
+    res.setHeader('Cache-Control', 'private, no-cache');
+    if (!asset) return res.status(404).end();
+
+    res.setHeader('ETag', asset.etag);
+    // ブラウザは複数の検証子を並べたり W/ を付けたりするので、素の一致比較では取りこぼす
+    const known = String(req.headers['if-none-match'] || '')
+      .split(',')
+      .map((v) => v.trim().replace(/^W\//, ''));
+    if (known.includes(asset.etag)) return res.status(304).end();
+
     res.setHeader('Content-Type', asset.contentType);
-    res.setHeader('Cache-Control', 'private, max-age=86400');
     res.send(asset.data);
   } catch {
-    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.setHeader('Cache-Control', 'private, no-cache');
     res.status(404).end();
   }
 });
