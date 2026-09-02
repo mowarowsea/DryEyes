@@ -59,9 +59,15 @@ describe('WatchCard のカード背景', () => {
       return found!;
     });
 
-    // 左端は完全に透明、右端がいちばんはっきり見える
+    // 絵はカードの右側だけに敷く。全幅の箱に cover で敷くと拡大率が上がりすぎて、
+    // 縦長の表紙だと真ん中の細い帯しか出てこない。
+    expect(layer.style.width).toBe('58%');
+    expect(layer.className).toContain('right-0');
+    expect(layer.className).toContain('bg-cover');
+
+    // レイヤーの左端は完全に透明、右端がいちばんはっきり見える
     expect(layer.style.maskImage).toContain('to right');
-    expect(layer.style.maskImage).toContain('transparent 42%');
+    expect(layer.style.maskImage).toContain('transparent 0%');
     expect(layer.style.maskImage).toMatch(/rgb\(0, 0, 0\) 100%\)$/);
 
     // 絵の上でも操作メニューが読めるよう、下敷きが付く
@@ -139,5 +145,55 @@ describe('取得結果の共有', () => {
       expect(second.container.querySelector('[style*="blob:shared"]')).not.toBeNull()
     );
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 背景の絵はアカウント画面で切れる。切っているあいだは取りにも行かない
+// （BFF がページを開きに行くのは、絵を出す人の分だけで足りる）。
+describe('背景を切っているとき', () => {
+  const watch: WatchModel = {
+    id: 'hidden-1',
+    url: 'https://example.com/works/9',
+    title: '背景オフ',
+    fetchBackend: 'html_requests',
+    checkIntervalMinutes: 10,
+    paused: false,
+    lastChecked: null,
+    lastChanged: null,
+    hasError: false,
+    lastError: null,
+    includeFilters: [],
+    subtractedFilters: [],
+    notificationTopic: 'dryeyes',
+  };
+
+  afterEach(() => {
+    cleanup();
+    forgetCardImage(watch.id);
+    vi.restoreAllMocks();
+  });
+
+  it('絵を取りに行かず、カードも従来どおりの見た目のまま', async () => {
+    const spy = vi.spyOn(api, 'getCardImageBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
+
+    const { container } = render(
+      <WatchCard
+        watch={watch}
+        showImage={false}
+        onTriggerCheck={vi.fn()}
+        onTogglePause={vi.fn()}
+        onOpenDiff={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onCopyTo={vi.fn()}
+        onReviewRedirect={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByText('背景オフ')).toBeInTheDocument());
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(container.querySelector('[style*="background-image"]')).toBeNull();
+    expect(screen.getByLabelText('操作メニュー').className).not.toContain('backdrop-blur-sm');
   });
 });

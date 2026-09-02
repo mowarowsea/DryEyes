@@ -14,6 +14,7 @@ import { api, authToken, setUnauthorizedHandler } from './api';
 import { takePendingWatchId, takeCreateIntent, CreateIntent } from './deepLink';
 import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
 import { forgetCardImage } from './hooks/useCardImage';
+import { getStoredCardImageEnabled, storeCardImageEnabled } from './cardImagePref';
 
 // booting: 保存済みトークンの検証中 / anon: 未ログイン / ready: ログイン済み
 type AuthState = 'booting' | 'anon' | 'ready';
@@ -41,6 +42,8 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
+  // カードの背景に絵を敷くか（端末ごとの表示設定）
+  const [showCardImages, setShowCardImages] = useState<boolean>(() => getStoredCardImageEnabled());
   // ntfy 通知から開かれたときに、その監視の差分を出すための ID
   const [pendingWatchId, setPendingWatchId] = useState<string | null>(null);
   // 共有シートやホーム画面のショートカット（?add=1）から開かれたときの登録内容。
@@ -97,6 +100,11 @@ export default function App() {
   const handleChangeTheme = useCallback((mode: ThemeMode) => {
     setTheme(mode);
     storeTheme(mode);
+  }, []);
+
+  const handleChangeShowCardImages = useCallback((show: boolean) => {
+    setShowCardImages(show);
+    storeCardImageEnabled(show);
   }, []);
 
   const resetToAnonymous = useCallback(() => {
@@ -304,6 +312,7 @@ export default function App() {
           loaded={watchesLoaded}
           search={search}
           highlightedId={highlightedWatchId}
+          showCardImages={showCardImages}
           onTriggerCheck={handleTriggerCheck}
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
@@ -370,6 +379,8 @@ export default function App() {
           health={health}
           theme={theme}
           onChangeTheme={handleChangeTheme}
+          showCardImages={showCardImages}
+          onChangeShowCardImages={handleChangeShowCardImages}
           onLogout={handleLogout}
         />
       )}

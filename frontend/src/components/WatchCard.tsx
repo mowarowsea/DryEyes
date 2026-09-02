@@ -21,6 +21,8 @@ interface WatchCardProps {
   watch: WatchModel;
   // 登録直後の数秒だけ true。どれが増えたのか一目で分かるようにする。
   highlighted?: boolean;
+  // 背景に絵を敷くか（アカウント画面の表示設定）
+  showImage?: boolean;
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
@@ -52,10 +54,17 @@ const faviconUrlOf = (url: string): string | null => {
   return apiUrl(`/proxy/favicon?url=${encodeURIComponent(url)}`);
 };
 
-// カード背景の見せ方。中央より左は文字の下なので完全に透明のままにして、
-// 右端へ向かってはっきり見えるようにする。
+// 絵を敷くのはカードの右側だけ。左半分は文字の下なので絵を置かない。
+//
+// 幅を絞るのは見た目のためだけではない。background-size: cover は「この箱を覆う」
+// 倍率まで拡大するので、カード全幅の箱に縦長の表紙を敷くと拡大率が上がりすぎて、
+// 絵の真ん中の細い帯しか出てこない。実際に見せる幅の箱に絞れば、その分だけ
+// 縮小されて絵が広く入る。
+const CARD_IMAGE_WIDTH = '58%';
+
+// レイヤーの左端から右端へ向かってはっきりさせる（右端がいちばん濃い）
 const CARD_IMAGE_MASK =
-  'linear-gradient(to right, transparent 42%, rgba(0,0,0,0.3) 62%, rgba(0,0,0,0.72) 82%, #000 100%)';
+  'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 32%, rgba(0,0,0,0.72) 68%, #000 100%)';
 
 // 時刻フォーマット
 const formatTime = (ts: number | null) => {
@@ -77,6 +86,7 @@ const formatTime = (ts: number | null) => {
 export const WatchCard: React.FC<WatchCardProps> = ({
   watch,
   highlighted = false,
+  showImage = true,
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
@@ -104,7 +114,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   useEffect(() => setFaviconFailed(false), [faviconUrl]);
 
   // そのページらしい絵。決められなかった監視では null になり、従来どおりの見た目になる。
-  const cardImage = useCardImage(watch.id);
+  const cardImage = useCardImage(watch.id, showImage);
 
   useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
 
@@ -203,8 +213,9 @@ export const WatchCard: React.FC<WatchCardProps> = ({
           className="pointer-events-none absolute inset-0 z-0 rounded-xl overflow-hidden"
         >
           <div
-            className="absolute inset-0 bg-cover bg-center opacity-80 dark:opacity-60"
+            className="absolute inset-y-0 right-0 bg-cover bg-center opacity-80 dark:opacity-60"
             style={{
+              width: CARD_IMAGE_WIDTH,
               backgroundImage: `url(${cardImage})`,
               maskImage: CARD_IMAGE_MASK,
               WebkitMaskImage: CARD_IMAGE_MASK,

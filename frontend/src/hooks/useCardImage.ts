@@ -64,11 +64,18 @@ function acquireImage(watchId: string): Promise<string | null> {
   return task;
 }
 
-/** カード背景の object URL。まだ取れていない・絵が無い監視では null。 */
-export function useCardImage(watchId: string): string | null {
+/**
+ * カード背景の object URL。まだ取れていない・絵が無い監視では null。
+ *
+ * enabled を落とすと取りに行かない。背景を消している人の分まで
+ * BFF がページを開きに行くのは無駄なので、要求そのものを出さない。
+ */
+export function useCardImage(watchId: string, enabled = true): string | null {
   const [url, setUrl] = useState<string | null>(() => cached.get(watchId) ?? null);
 
   useEffect(() => {
+    if (!enabled) return;
+
     let alive = true;
     acquireImage(watchId).then((resolved) => {
       if (alive) setUrl(resolved);
@@ -76,9 +83,9 @@ export function useCardImage(watchId: string): string | null {
     return () => {
       alive = false;
     };
-  }, [watchId]);
+  }, [watchId, enabled]);
 
-  return url;
+  return enabled ? url : null;
 }
 
 /** 監視を削除・変更したときに、覚えている絵を捨てる */

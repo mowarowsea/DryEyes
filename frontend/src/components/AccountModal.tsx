@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  Image,
+  ImageOff,
   LogOut,
   Monitor,
   Moon,
@@ -24,6 +26,8 @@ interface AccountModalProps {
   health: HealthStatus | null;
   theme: ThemeMode;
   onChangeTheme: (mode: ThemeMode) => void;
+  showCardImages: boolean;
+  onChangeShowCardImages: (show: boolean) => void;
   onLogout: () => void;
 }
 
@@ -41,6 +45,8 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   health,
   theme,
   onChangeTheme,
+  showCardImages,
+  onChangeShowCardImages,
   onLogout,
 }) => {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -113,6 +119,43 @@ export const AccountModal: React.FC<AccountModalProps> = ({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* カード背景の絵 */}
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">カードの背景</p>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showCardImages}
+            onClick={() => onChangeShowCardImages(!showCardImages)}
+            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-left hover:bg-slate-200/70 dark:hover:bg-slate-700/70 transition"
+          >
+            {showCardImages ? (
+              <Image className="w-3.5 h-3.5 flex-shrink-0 text-indigo-500" />
+            ) : (
+              <ImageOff className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+            )}
+            <span className="flex-1 min-w-0">
+              <span className="block text-[11px] font-medium text-slate-800 dark:text-slate-100">
+                ページの絵を敷く
+              </span>
+              <span className="block text-[10px] text-slate-500 dark:text-slate-400">
+                {showCardImages ? '監視しているページの絵を右側に薄く表示' : '文字だけのすっきりした一覧'}
+              </span>
+            </span>
+            <span
+              className={`flex-shrink-0 w-8 h-[18px] rounded-full p-0.5 transition ${
+                showCardImages ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'
+              }`}
+            >
+              <span
+                className={`block w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  showCardImages ? 'translate-x-[14px]' : ''
+                }`}
+              />
+            </span>
+          </button>
         </div>
 
         {/* ユーザー専用の通知トピック */}

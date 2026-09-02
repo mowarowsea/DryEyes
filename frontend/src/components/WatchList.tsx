@@ -14,6 +14,8 @@ interface WatchListProps {
   search: string;
   // 登録直後に目立たせる監視。数秒だけ入り、その後 null に戻る。
   highlightedId?: string | null;
+  // カード背景に絵を敷くか（アカウント画面の表示設定）
+  showCardImages?: boolean;
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
@@ -29,6 +31,7 @@ export const WatchList: React.FC<WatchListProps> = ({
   loaded,
   search,
   highlightedId = null,
+  showCardImages = true,
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
@@ -126,6 +129,7 @@ export const WatchList: React.FC<WatchListProps> = ({
               key={watch.id}
               watch={watch}
               highlighted={watch.id === highlightedId}
+              showImage={showCardImages}
               onTriggerCheck={onTriggerCheck}
               onTogglePause={onTogglePause}
               onOpenDiff={onOpenDiff}
