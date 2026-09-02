@@ -14,6 +14,7 @@ import {
 import { WatchModel } from '../types';
 import { unviewedCountOf } from '../watchStatus';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { useCardImage } from '../hooks/useCardImage';
 import { apiUrl } from '../api';
 
 interface WatchCardProps {
@@ -50,6 +51,11 @@ const faviconUrlOf = (url: string): string | null => {
   }
   return apiUrl(`/proxy/favicon?url=${encodeURIComponent(url)}`);
 };
+
+// カード背景の見せ方。中央より左は文字の下なので完全に透明のままにして、
+// 右端へ向かってはっきり見えるようにする。
+const CARD_IMAGE_MASK =
+  'linear-gradient(to right, transparent 42%, rgba(0,0,0,0.3) 62%, rgba(0,0,0,0.72) 82%, #000 100%)';
 
 // 時刻フォーマット
 const formatTime = (ts: number | null) => {
@@ -96,6 +102,9 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   // URL を差し替えると ?url= の中身も変わるので、ブラウザは自動で新しいアイコンを取りに行く
   const faviconUrl = faviconUrlOf(watch.url);
   useEffect(() => setFaviconFailed(false), [faviconUrl]);
+
+  // そのページらしい絵。決められなかった監視では null になり、従来どおりの見た目になる。
+  const cardImage = useCardImage(watch.id);
 
   useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
 
@@ -187,7 +196,24 @@ export const WatchCard: React.FC<WatchCardProps> = ({
             : 'border-slate-200/80 dark:border-slate-800'
       } ${deleting ? 'opacity-50 pointer-events-none' : ''}`}
     >
-      <div className="flex items-center gap-2">
+      {/* そのページらしい絵。中身の下に敷くので、以降の要素は z-10 で上に載せる。 */}
+      {cardImage && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0 rounded-xl overflow-hidden"
+        >
+          <div
+            className="absolute inset-0 bg-cover bg-center opacity-80 dark:opacity-60"
+            style={{
+              backgroundImage: `url(${cardImage})`,
+              maskImage: CARD_IMAGE_MASK,
+              WebkitMaskImage: CARD_IMAGE_MASK,
+            }}
+          />
+        </div>
+      )}
+
+      <div className="relative z-10 flex items-center gap-2">
         {/* ファビコン（取得できないサイトは地球アイコンで代用） */}
         <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
           {faviconUrl && !faviconFailed ? (
@@ -226,11 +252,17 @@ export const WatchCard: React.FC<WatchCardProps> = ({
 
         {/* 操作メニュー */}
         <div className="relative flex-shrink-0" ref={menuRef} onClick={stopPropagation}>
+          {/* 背景に絵が入ると、この位置は絵がいちばんはっきり出るところ。半透明＋ぼかしの
+              下敷きを付けて、明るい絵でも暗い絵でもアイコンが沈まないようにする。 */}
           <button
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="操作メニュー"
             aria-expanded={menuOpen}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-100 dark:hover:bg-slate-800 active:scale-95 rounded-lg transition"
+            className={`p-1.5 active:scale-95 rounded-lg transition ${
+              cardImage
+                ? 'text-slate-800 bg-white/75 ring-1 ring-slate-900/10 backdrop-blur-sm hover:bg-white dark:text-slate-100 dark:bg-slate-900/70 dark:ring-white/15 dark:hover:bg-slate-900'
+                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-100 dark:hover:bg-slate-800'
+            }`}
           >
             <MoreVertical className="w-4 h-4" />
           </button>
@@ -296,7 +328,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
         </div>
       </div>
 
-      <div className="mt-1 pl-7 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
+      <div className="relative z-10 mt-1 pl-7 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
         {statusBadge}
         <span>
           更新: <span className="text-slate-700 dark:text-slate-300 font-medium">{watch.lastChanged ? formatTime(watch.lastChanged) : 'なし'}</span>
@@ -313,7 +345,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
             e.stopPropagation();
             onReviewRedirect(watch);
           }}
-          className="mt-1.5 ml-7 w-[calc(100%-1.75rem)] text-left text-[11px] bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-200 rounded-lg px-2 py-1 leading-relaxed flex items-center gap-1.5 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
+          className="relative z-10 mt-1.5 ml-7 w-[calc(100%-1.75rem)] text-left text-[11px] bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-200 rounded-lg px-2 py-1 leading-relaxed flex items-center gap-1.5 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
         >
           <Signpost className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="flex-1 min-w-0 truncate">
@@ -324,7 +356,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
       )}
 
       {watch.lastError && (
-        <div className="mt-1.5 ml-7 text-[11px] bg-rose-50 border border-rose-100 text-rose-600 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300 rounded-lg px-2 py-1 leading-relaxed line-clamp-2">
+        <div className="relative z-10 mt-1.5 ml-7 text-[11px] bg-rose-50 border border-rose-100 text-rose-600 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-300 rounded-lg px-2 py-1 leading-relaxed line-clamp-2">
           {watch.lastError}
         </div>
       )}

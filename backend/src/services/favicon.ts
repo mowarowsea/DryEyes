@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { attributeOf } from './htmlMeta.js';
 
 // 監視対象サイトのファビコンを取得する。
 //
@@ -133,12 +134,6 @@ export function extractIconHrefs(html: string): string[] {
   }
 
   return [...primary, ...fallback];
-}
-
-function attributeOf(tag: string, name: string): string | null {
-  const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i'));
-  if (!match) return null;
-  return (match[2] ?? match[3] ?? match[4] ?? '').trim() || null;
 }
 
 async function fetchIcon(url: string): Promise<FaviconAsset | null> {

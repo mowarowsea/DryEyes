@@ -195,6 +195,15 @@ export const api = {
     if (!res.ok) throw new Error('Failed to trigger check');
   },
 
+  // カードの背景に敷く画像。決められなかった監視は null を返す。
+  // <img src> で直接読めないのは、このエンドポイントが Authorization を要求するため
+  // （ファビコンと違い、監視 ID から本人の監視内容が見えることになるので認証を外せない）。
+  async getCardImageBlob(id: string): Promise<Blob | null> {
+    const res = await request(`/watches/${id}/card-image`);
+    if (!res.ok) return null;
+    return res.blob();
+  },
+
   async getHistory(id: string): Promise<WatchHistoryItem[]> {
     const res = await request(`/watches/${id}/history`);
     if (!res.ok) throw new Error('Failed to fetch history');

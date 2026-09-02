@@ -173,3 +173,26 @@ export interface RedirectStoreData {
   pending: Record<string, RedirectProposal>; // watchId -> 未処理の提案
   decisions: Record<string, RedirectDecisions>; // watchId -> 判断の記録
 }
+
+// ---------------------------------------------------------------------------
+// カード背景画像（一覧で監視を見分けるための絵）
+// ---------------------------------------------------------------------------
+
+// どうやって決めた絵か。
+//  - social:  ページ作者が宣言した og:image / twitter:image
+//  - element: 監視対象セレクタの近くにあった画像
+export type CardImageSource = 'social' | 'element';
+
+export interface CardImageRecord {
+  pageUrl: string; // 解決した時点の監視 URL（移転したら採り直す）
+  selectorKey: string; // 解決した時点の includeFilters（監視範囲を変えたら採り直す）
+  imageUrl: string | null; // 採用した画像の絶対 URL。null は「見つからなかった」
+  // og:image の URL。採用しなかった場合も、同一オリジンの重複判定に使うため覚えておく。
+  socialImageUrl: string | null;
+  source: CardImageSource | null;
+  resolvedAt: string; // ISO8601
+}
+
+export interface CardImageStoreData {
+  images: Record<string, CardImageRecord>; // watchId -> 解決結果
+}

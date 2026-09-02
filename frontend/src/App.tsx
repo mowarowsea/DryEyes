@@ -13,6 +13,7 @@ import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSessi
 import { api, authToken, setUnauthorizedHandler } from './api';
 import { takePendingWatchId, takeCreateIntent, CreateIntent } from './deepLink';
 import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
+import { forgetCardImage } from './hooks/useCardImage';
 
 // booting: 保存済みトークンの検証中 / anon: 未ログイン / ready: ログイン済み
 type AuthState = 'booting' | 'anon' | 'ready';
@@ -225,6 +226,8 @@ export default function App() {
     { recheck }: EditWatchOptions
   ) => {
     await api.updateWatch(id, data);
+    // URL や監視範囲を変えると背景の絵も変わりうるので、覚えている絵を捨てて取り直させる
+    if (data.url !== undefined || data.includeFilters !== undefined) forgetCardImage(id);
 
     if (recheck) {
       // 新しい設定での取得結果を、これまでの履歴に続けて積む
@@ -252,6 +255,7 @@ export default function App() {
 
   const handleDeleteWatch = async (id: string) => {
     await api.deleteWatch(id);
+    forgetCardImage(id);
     showToast('監視対象を削除しました');
     fetchData();
   };

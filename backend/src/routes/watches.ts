@@ -13,6 +13,7 @@ import {
 import { diffSnapshots, splitSnapshotLines } from '../services/diff.js';
 import { clearRedirectState, getPendingRedirect, pruneRedirectState } from '../services/redirectReview.js';
 import { acceptPendingRedirect, dismissPendingRedirect } from '../services/redirectScan.js';
+import { clearCardImage, getCardImage } from '../services/cardImage.js';
 import { requireAuth } from '../middleware/auth.js';
 import { CreateWatchDto, UpdateWatchDto, WatchDiffResponse, WatchModel } from '../types/index.js';
 
@@ -147,9 +148,31 @@ watchesRouter.delete('/:id', async (req, res) => {
     releaseOwner(req.params.id);
     clearViewStates(req.params.id);
     clearRedirectState(req.params.id);
+    clearCardImage(req.params.id);
     res.status(204).send();
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to delete watch', message: err.message });
+  }
+});
+
+// カードの背景に敷く画像。決められなければ 404 を返し、画面側は絵なしの見た目に戻す。
+// 画像を BFF が代理で取るのはファビコンと同じ理由で、Referer / UA を見て
+// 直リンクを弾くサイトが多いため。
+watchesRouter.get('/:id/card-image', async (req, res) => {
+  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  try {
+    const watch = await changedetectionClient.getWatch(req.params.id);
+    const asset = await getCardImage(watch);
+    if (!asset) {
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.status(404).end();
+    }
+    res.setHeader('Content-Type', asset.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(asset.data);
+  } catch {
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.status(404).end();
   }
 });
 

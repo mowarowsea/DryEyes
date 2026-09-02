@@ -181,3 +181,192 @@ export async function hasAnySelectorMatch(targetUrl: string, selectors: string[]
     await browser?.close().catch(() => undefined);
   }
 }
+
+// ---------------------------------------------------------------------------
+// カード背景の候補画像を探す
+// ---------------------------------------------------------------------------
+
+export interface CardImageCandidate {
+  url: string;
+  width: number;
+  height: number;
+  score: number;
+}
+
+// ロゴ・スペーサー・共通バナーの類。ファイル名で分かるものはここで落とす。
+const CARD_IMAGE_NOISE = 'logo|sprite|spacer|blank|dummy|no[-_]?image|placeholder|icon|avatar|banner|ad[-_]';
+
+// ブラウザ側で評価するコード。BFF の tsconfig には DOM の型が無いので文字列で持つ。
+// 監視対象セレクタにマッチした要素を起点に、そこから外へ数段だけ広げながら画像を集める。
+// ページ先頭から探すとプラットフォーム共通のロゴを掴むが、起点をユーザーが選んだ
+// 監視範囲にすれば「同じサイトの別作品」でも別の絵が採れる。
+// String.raw なのは、埋め込む正規表現のバックスラッシュをそのまま渡すため
+// （素のテンプレートリテラルだと  が 8 進エスケープとして解釈されてしまう）。
+const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
+  const MIN_SIDE = 100;      // これ以下は装飾アイコンとみなす
+  const MAX_ASPECT = 4;      // 横長・縦長すぎるものは帯や区切り線
+  // 監視要素からどこまで外へ広げるか。
+  // 話数一覧を監視していると、起点は <a> ひとつぶんなので画像に行き当たるまで
+  // 6〜7 段かかる（a → div → li → ul → nav → 一覧 → 作品情報）。浅すぎると何も採れない。
+  const MAX_ANCESTOR_STEPS = 10;
+  const noise = new RegExp(noisePattern, 'i');
+  const CHROME = 'header,nav,footer,aside,[role="banner"],[role="navigation"],[role="contentinfo"]';
+
+  const resolveRoots = () => {
+    const found = [];
+    for (const raw of selectors) {
+      const selector = raw.replace(/^xpath1?:/, '');
+      try {
+        if (selector.startsWith('/') || selector.startsWith('(')) {
+          const res = document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+          for (let i = 0; i < res.snapshotLength; i++) {
+            const node = res.snapshotItem(i);
+            if (node && node.nodeType === 1) found.push(node);
+          }
+        } else {
+          document.querySelectorAll(selector).forEach((el) => found.push(el));
+        }
+      } catch (e) {
+        // 壊れたセレクタは無かったことにする
+      }
+    }
+    // 監視範囲を指定していない（ページ全体監視）ときは本文全体から探す
+    return found.length > 0 ? found.slice(0, 5) : [document.body].filter(Boolean);
+  };
+
+  const absolute = (raw) => {
+    if (!raw) return null;
+    const url = String(raw).trim().replace(/^url\(['"]?|['"]?\)$/g, '');
+    if (!url || /^data:/i.test(url)) return null;
+    try {
+      const resolved = new URL(url, location.href);
+      if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') return null;
+      return resolved.href;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // srcset は指定された中でいちばん大きいものを使う（カード背景は大きいほど嬉しい）
+  const fromSrcset = (value) => {
+    const entries = String(value || '')
+      .split(',')
+      .map((part) => part.trim().split(/\s+/))
+      .filter((parts) => parts[0]);
+    if (entries.length === 0) return null;
+    entries.sort((a, b) => (parseInt(b[1], 10) || 0) - (parseInt(a[1], 10) || 0));
+    return entries[0][0];
+  };
+
+  const collected = new Map();
+
+  const consider = (el, rawUrl, depth) => {
+    const url = absolute(rawUrl);
+    if (!url || noise.test(url)) return;
+
+    const rect = el.getBoundingClientRect();
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    if (width < MIN_SIDE || height < MIN_SIDE) return;
+
+    const aspect = width / height;
+    if (aspect > MAX_ASPECT || aspect < 1 / MAX_ASPECT) return;
+    if (el.closest(CHROME)) return;
+
+    const style = getComputedStyle(el);
+    if (style.visibility === 'hidden' || style.display === 'none' || parseFloat(style.opacity) < 0.1) return;
+
+    // 監視要素から遠いほど「そのページ固有」である確度が下がるので割り引く
+    let score = (width * height) / (depth + 1);
+    // 説明のある画像は中身のある絵であることが多い
+    if (el.getAttribute && (el.getAttribute('alt') || '').trim()) score *= 1.15;
+
+    const prev = collected.get(url);
+    if (!prev || prev.score < score) collected.set(url, { url, width, height, score });
+  };
+
+  const collectFrom = (root, depth) => {
+    const before = collected.size;
+
+    root.querySelectorAll('img').forEach((img) => {
+      consider(img, img.currentSrc || img.getAttribute('src') || fromSrcset(img.getAttribute('srcset')), depth);
+    });
+    root.querySelectorAll('source[srcset]').forEach((source) => {
+      const picture = source.closest('picture');
+      const img = picture && picture.querySelector('img');
+      if (img) consider(img, fromSrcset(source.getAttribute('srcset')), depth);
+    });
+    // CSS で敷いてある絵（漫画サイトのサムネイルはこの形が多い）
+    root.querySelectorAll('*').forEach((el) => {
+      const image = getComputedStyle(el).backgroundImage;
+      if (!image || image === 'none') return;
+      const match = image.match(/url\((['"]?)(.*?)\1\)/);
+      if (match) consider(el, match[2], depth);
+    });
+
+    return collected.size > before;
+  };
+
+  for (const root of resolveRoots()) {
+    let node = root;
+    for (let depth = 0; depth <= MAX_ANCESTOR_STEPS && node; depth++) {
+      // 近い階層で見つかったら、そこで打ち切って外へ広げない
+      if (collectFrom(node, depth)) break;
+      node = node.parentElement;
+    }
+  }
+
+  return [...collected.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+})('PLACEHOLDER_SELECTORS', 'PLACEHOLDER_NOISE')`;
+
+// ブラウザへ渡す完成形のコードを組み立てる。
+// 文字列で持っている以上、崩れても TypeScript は気づけないのでテストから叩けるようにしておく。
+export function buildCardImageScript(selectors: string[]): string {
+  const targets = selectors.map((s) => s.trim()).filter(Boolean);
+  return CARD_IMAGE_SCRIPT.replace("'PLACEHOLDER_SELECTORS'", JSON.stringify(targets)).replace(
+    "'PLACEHOLDER_NOISE'",
+    JSON.stringify(CARD_IMAGE_NOISE)
+  );
+}
+
+/**
+ * 監視対象セレクタの近くにある画像を、カード背景の候補として大きい順に返す。
+ *
+ * スクリーンショットは撮らない。実ブラウザを使うのは「セレクタを評価して、
+ * 実際に描画されたサイズを測る」ためで、返すのは画像の URL だけ。
+ * 素の HTML を正規表現で読む方式では、CSS 背景も遅延読み込みも表示サイズも分からない。
+ */
+export async function findCardImageCandidates(
+  targetUrl: string,
+  selectors: string[]
+): Promise<CardImageCandidate[]> {
+  const script = buildCardImageScript(selectors);
+
+  let browser: Browser | null = null;
+  try {
+    browser = await chromium.connectOverCDP(config.browser.wsUrl, { timeout: CONNECT_TIMEOUT_MS });
+    const context = await browser.newContext({
+      userAgent: RENDER_USER_AGENT,
+      locale: 'ja-JP',
+      viewport: { width: 1280, height: 900 },
+    });
+    const page = await context.newPage();
+
+    const response = await page.goto(targetUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: NAVIGATION_TIMEOUT_MS,
+    });
+    if (!response) throw new Error('ページを開けませんでした');
+    await page.waitForLoadState('load', { timeout: LOAD_TIMEOUT_MS }).catch(() => undefined);
+
+    // 画面内に入って初めて読み込まれるサムネイルを起こす
+    await page.evaluate(LAZY_LOAD_SCROLL_JS);
+    await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
+
+    const candidates = await page.evaluate<CardImageCandidate[]>(script);
+    await context.close().catch(() => undefined);
+    return Array.isArray(candidates) ? candidates : [];
+  } finally {
+    await browser?.close().catch(() => undefined);
+  }
+}
