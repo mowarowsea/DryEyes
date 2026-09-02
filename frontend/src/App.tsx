@@ -27,7 +27,6 @@ export default function App() {
 
   const [watches, setWatches] = useState<WatchModel[]>([]);
   const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [loading, setLoading] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   // 検索語は固定ヘッダ側の入力欄が持ち主。一覧には結果の絞り込みだけを渡す。
@@ -110,31 +109,27 @@ export default function App() {
     return () => setUnauthorizedHandler(null);
   }, [resetToAnonymous]);
 
-  // データ取得
-  const fetchData = useCallback(async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
-    try {
-      const [healthResult, watchesResult] = await Promise.allSettled([
-        api.getHealth(),
-        api.getWatches(),
-      ]);
+  // データ取得。初回もポーリングも同じ扱いで、画面全体を覆う読み込み表示は出さない。
+  // 一覧が既に出ている状態でスピナーに切り替わると、見ていた位置を見失うだけになる。
+  const fetchData = useCallback(async () => {
+    const [healthResult, watchesResult] = await Promise.allSettled([
+      api.getHealth(),
+      api.getWatches(),
+    ]);
 
-      // 取れなかったものは前回の表示をそのまま残す。
-      // ここで空配列や null に落としてしまうと、30 秒ごとの裏取得がたまたま失敗しただけで
-      // 一覧が一瞬カラになり「まだ監視対象がありません」が出る（画面がリロードされたように見える）。
-      if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
+    // 取れなかったものは前回の表示をそのまま残す。
+    // ここで空配列や null に落としてしまうと、30 秒ごとの裏取得がたまたま失敗しただけで
+    // 一覧が一瞬カラになり「まだ監視対象がありません」が出る（画面がリロードされたように見える）。
+    if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
 
-      if (watchesResult.status === 'fulfilled') {
-        const next = watchesResult.value;
-        // 中身が前回と同じなら state を差し替えない。同じ内容で再描画すると、
-        // 一覧がちらついたり開いているメニューが閉じたりするだけで、得るものがない。
-        setWatches((prev) => (isSameWatchList(prev, next) ? prev : next));
-        setWatchesLoaded(true);
-      } else {
-        console.error(watchesResult.reason);
-      }
-    } finally {
-      if (!isSilent) setLoading(false);
+    if (watchesResult.status === 'fulfilled') {
+      const next = watchesResult.value;
+      // 中身が前回と同じなら state を差し替えない。同じ内容で再描画すると、
+      // 一覧がちらついたり開いているメニューが閉じたりするだけで、得るものがない。
+      setWatches((prev) => (isSameWatchList(prev, next) ? prev : next));
+      setWatchesLoaded(true);
+    } else {
+      console.error(watchesResult.reason);
     }
   }, []);
 
@@ -170,7 +165,7 @@ export default function App() {
     if (authState !== 'ready') return;
     fetchData();
     // 30秒ごとに自動ポーリング
-    const interval = setInterval(() => fetchData(true), 30000);
+    const interval = setInterval(() => fetchData(), 30000);
     return () => clearInterval(interval);
   }, [authState, fetchData]);
 
@@ -210,24 +205,24 @@ export default function App() {
       // 新しい設定での取得結果を、これまでの履歴に続けて積む
       await api.triggerCheck(id).catch(() => undefined);
       showToast('設定を更新しました。新しい内容で取得中です');
-      setTimeout(() => fetchData(true), 2500);
+      setTimeout(() => fetchData(), 2500);
     } else {
       showToast('監視の設定を更新しました');
     }
-    fetchData(true);
+    fetchData();
   };
 
   const handleTriggerCheck = async (id: string) => {
     await api.triggerCheck(id);
     showToast('チェックを開始しました');
     // 数秒後に更新結果を取得
-    setTimeout(() => fetchData(true), 2500);
+    setTimeout(() => fetchData(), 2500);
   };
 
   const handleTogglePause = async (id: string, paused: boolean) => {
     await api.updateWatch(id, { paused });
     showToast(paused ? '監視を一時停止しました' : '監視を再開しました');
-    fetchData(true);
+    fetchData();
   };
 
   const handleDeleteWatch = async (id: string) => {
@@ -258,12 +253,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col font-sans pb-24">
-      <SearchHeader
-        value={search}
-        onChange={setSearch}
-        loading={loading}
-        onRefresh={() => fetchData()}
-      />
+      <SearchHeader value={search} onChange={setSearch} />
 
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-6">
         <WatchList
@@ -315,7 +305,7 @@ export default function App() {
         watch={diffTargetWatch}
         isOpen={!!diffTargetWatch}
         onClose={() => setDiffTargetWatch(null)}
-        onViewed={() => fetchData(true)}
+        onViewed={() => fetchData()}
       />
 
       {user && (
