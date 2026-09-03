@@ -191,6 +191,12 @@ export interface CardImageRecord {
   socialImageUrl: string | null;
   source: CardImageSource | null;
   resolvedAt: string; // ISO8601
+  // 絵の決め方の版。上げると、URL もセレクタも変えていない記録を採り直させられる。
+  // 版を持たない記録は、決め方を変える前に作られたもの。
+  resolverVersion?: number;
+  // 要素から選ぶつもりがブラウザへ繋げず、OGP のまま置いた記録。
+  // 絵は決まっているが確度が低いので、短い間隔で採り直す。
+  provisional?: boolean;
 }
 
 export interface CardImageStoreData {

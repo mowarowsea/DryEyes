@@ -39,6 +39,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   const [subtractedFilters, setSubtractedFilters] = useState('');
   // 空なら自分専用トピックへまとめて通知する（通常はこれでよい）
   const [notificationTopic, setNotificationTopic] = useState('');
+  const [pickerRenderMode, setPickerRenderMode] = useState<'browser' | undefined>(undefined);
 
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -68,6 +69,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     setIncludeFilters('');
     setSubtractedFilters('');
     setNotificationTopic('');
+    setPickerRenderMode(undefined);
     setError(null);
     onClose();
   };
@@ -87,6 +89,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
       if (info && info.title) {
         setTitle(info.title);
       }
+      setPickerRenderMode(info?.renderMode);
     } catch {
       /* タイトルが取れなくても登録は続行できる（表示名は URL のまま） */
     } finally {
@@ -324,6 +327,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
         error={error}
         options={optionsPanel}
         targetUrl={url}
+        initialRenderMode={pickerRenderMode}
         onClose={() => setIsPickerOpen(false)}
         onSelectXPath={handlePickerConfirm}
       />

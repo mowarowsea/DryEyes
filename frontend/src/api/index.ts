@@ -132,7 +132,7 @@ export const api = {
     return res.json();
   },
 
-  async getPageInfo(url: string): Promise<{ title: string; url: string }> {
+  async getPageInfo(url: string): Promise<{ title: string; url: string; renderMode?: 'browser' }> {
     const res = await request(`/proxy/info?url=${encodeURIComponent(url)}`);
     if (!res.ok) return { title: url, url };
     return res.json();

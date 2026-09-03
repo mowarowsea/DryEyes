@@ -11,17 +11,25 @@ import { CardImageRecord, CardImageStoreData, WatchModel } from '../types/index.
 //   ① og:image / twitter:image
 //      ページ作者自身が宣言した代表画像。判定を丸ごと任せられる代わりに、
 //      作品ごとではなくサイト共通のロゴを返してくるプラットフォームがある。
-//      → 同一オリジンの他の監視と URL がぶつかったら「共通画像」と断定して捨てる。
-//         DryEyes は同じサイトを何件も監視しているので、絶対評価ではなく
-//         相対評価（他と同じ絵か否か）でこれを見分けられる。
+//      共通画像だと見抜けるのは次の二通り。
+//        ・同一オリジンの他の監視と URL がぶつかった。DryEyes は同じサイトを何件も
+//          監視しているので、絶対評価ではなく相対評価でこれを見分けられる。
+//        ・URL 自身がロゴだと名乗っている（/logo/ や -logo.svg）。初めて登録した
+//          プラットフォームでも、ぶつかる相手を待たずに判断できる。
 //   ② 監視対象セレクタの近くにある画像
 //      「このページのどこが大事か」はピッカーで既に教えてもらっている。
 //      ページ先頭ではなくそこを起点に探せば、同じプラットフォームの別作品でも別の絵になる。
+//
+// ①が信用できるならそのまま使い、怪しければ②を先に見て、②でも決まらなければ①へ戻る。
 //
 // 決まった絵はファイルに残す。毎回ページを開き直さないためと、
 // ①の重複判定に他の監視の og:image が要るため。
 
 const store = new JsonStore<CardImageStoreData>('watch-card-images.json', { images: {} });
+
+// 絵の決め方を変えたら上げる。上がっていれば、URL もセレクタも同じ記録を採り直させられる。
+// v2: サイト共通のロゴらしい OGP を後回しにし、本文やプロフィール領域の絵を先に見るようにした。
+export const RESOLVER_VERSION = 2;
 
 // 一度決まった絵はそう変わらないので長め。監視 URL やセレクタを変えたら TTL 前でも採り直す。
 const RESOLVED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -93,12 +101,20 @@ function originOf(url: string): string | null {
 }
 
 // 記録が今の監視設定にそのまま使えるか。URL やセレクタが変わっていたら採り直す。
-function isFresh(record: CardImageRecord | undefined, pageUrl: string, selectorKey: string): boolean {
+export function isFresh(
+  record: CardImageRecord | undefined,
+  pageUrl: string,
+  selectorKey: string
+): boolean {
   if (!record) return false;
   if (record.pageUrl !== pageUrl || record.selectorKey !== selectorKey) return false;
+  // 決め方そのものを変えたときは、設定が同じでも採り直す
+  if (record.resolverVersion !== RESOLVER_VERSION) return false;
 
   const age = Date.now() - new Date(record.resolvedAt).getTime();
   if (Number.isNaN(age)) return false;
+  // ブラウザに繋げず OGP のまま置いた記録は、絵が決まっていても短く切る
+  if (record.provisional) return age < UNRESOLVED_TTL_MS;
   return age < (record.imageUrl ? RESOLVED_TTL_MS : UNRESOLVED_TTL_MS);
 }
 
@@ -155,16 +171,35 @@ async function fetchSocialImage(pageUrl: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * OGP はサイト共通のロゴを返すことがある。ロゴと明示できる URL だけを低信頼にし、
+ * それ以外の OGP は従来どおり優先する。プロフィール画像の /icons/ や /avatar/ は
+ * ページ固有である場合が多いため、ここでは共通画像とみなさない。
+ */
+export function isLikelySiteWideSocialImage(imageUrl: string): boolean {
+  try {
+    const pathname = new URL(imageUrl).pathname.toLowerCase();
+    return /(?:^|[/_.-])(logo|brand|favicon)(?:[/_.-]|$)/.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function resolve(watchId: string, pageUrl: string, selectorKey: string): Promise<CardImageRecord> {
   const socialImageUrl = await fetchSocialImage(pageUrl);
+  const sharedSocialImage = socialImageUrl
+    ? isSharedAcrossOrigin(watchId, pageUrl, socialImageUrl)
+    : false;
+  const shouldPreferElement =
+    !socialImageUrl || sharedSocialImage || isLikelySiteWideSocialImage(socialImageUrl);
 
   let imageUrl: string | null = null;
   let source: CardImageRecord['source'] = null;
+  // 要素から選ぶつもりが、ブラウザへ繋げずに OGP へ落ちた状態。
+  // 決まった絵をそのまま一週間抱え込まないよう、記録を短命にする目印にする。
+  let provisional = false;
 
-  if (socialImageUrl && !isSharedAcrossOrigin(watchId, pageUrl, socialImageUrl)) {
-    imageUrl = socialImageUrl;
-    source = 'social';
-  } else {
+  if (shouldPreferElement) {
     try {
       const candidates = await findCardImageCandidates(pageUrl, selectorKey.split('\n').filter(Boolean));
       if (candidates.length > 0) {
@@ -172,8 +207,14 @@ async function resolve(watchId: string, pageUrl: string, selectorKey: string): P
         source = 'element';
       }
     } catch {
-      // ブラウザに繋げないときは「絵なし」で確定させる。カードは今までどおり表示される。
+      // ブラウザに繋げないときは、低信頼 OGP でも従来どおりの表示を保つ。
+      provisional = true;
     }
+  }
+
+  if (!imageUrl && socialImageUrl && !sharedSocialImage) {
+    imageUrl = socialImageUrl;
+    source = 'social';
   }
 
   const record: CardImageRecord = {
@@ -183,6 +224,8 @@ async function resolve(watchId: string, pageUrl: string, selectorKey: string): P
     socialImageUrl,
     source,
     resolvedAt: new Date().toISOString(),
+    resolverVersion: RESOLVER_VERSION,
+    provisional,
   };
   store.update((data) => {
     data.images[watchId] = record;

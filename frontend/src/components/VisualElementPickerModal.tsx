@@ -45,6 +45,8 @@ interface SelectedElementData {
 interface VisualElementPickerModalProps {
   isOpen: boolean;
   targetUrl: string;
+  /** SPA シェルと判定されたページは、崩れた静的 HTML を一度見せずに描画済み DOM を使う。 */
+  initialRenderMode?: 'browser';
   /** 見出しの左に出す小さなラベル。登録ウィザードから開いたときの「Step 2/2」など。 */
   badge?: string;
   /** 確定ボタンのラベル。登録ウィザードでは「監視を登録する」になる。 */
@@ -68,6 +70,7 @@ interface VisualElementPickerModalProps {
 export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> = ({
   isOpen,
   targetUrl,
+  initialRenderMode,
   badge,
   confirmLabel = 'OK',
   allowEmptySelection = false,
@@ -103,9 +106,9 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   // 開き直したときや対象が変わったときは、また軽い描画から始める
   useEffect(() => {
     if (!isOpen) return;
-    setRenderMode('static');
+    setRenderMode(initialRenderMode === 'browser' ? 'browser' : 'static');
     setBrowserRenderFailed(false);
-  }, [isOpen, targetUrl]);
+  }, [isOpen, targetUrl, initialRenderMode]);
 
   // テーマを切り替えるとプレビューの URL が変わり iframe を読み込み直すので、その間は待たせる
   useEffect(() => {
@@ -125,6 +128,9 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
       } else if (event.data.type === 'DRYEYES_RENDER_MODE') {
         // 頼んだ描画と返ってきた描画が食い違ったら、押しても変わらない理由を出す
         setBrowserRenderFailed(event.data.mode === 'static' && renderMode === 'browser');
+        // 静的 HTML が SPA のシェルだったときは、頼まなくてもサーバ側が描画へ切り替える。
+        // 「もうちょっと頑張って描画する」を出したままにしないよう、実際の方法に合わせる。
+        if (event.data.mode === 'browser') setRenderMode('browser');
       }
     };
     window.addEventListener('message', handleMessage);

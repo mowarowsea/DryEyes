@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { renderPageHtml, RENDER_USER_AGENT } from './browserRender.js';
-import { escapeHtml } from './htmlMeta.js';
+import { attributeOf, escapeHtml } from './htmlMeta.js';
 
 // 注入する Element Inspector スクリプト。
 // <head> の先頭に置いて、ページ自身のスクリプトより先にリスナーを登録する。
@@ -476,6 +476,21 @@ export async function fetchProxyPage(
     }
   } else {
     html = await fetchStaticHtml(targetUrl);
+
+    // SPA の起動用シェルは、そのまま iframe に入れても中身が組み上がらない。
+    // 自前オリジンで配信する以上、ページ自身の module script は CORS で止まるため。
+    // 崩れた枠を一度見せる意味は無いので、ここは頼まれなくても実ブラウザへ切り替える。
+    if (isLikelyClientRenderedShell(html)) {
+      try {
+        html = await renderPageHtml(targetUrl, dark);
+        renderedWithBrowser = true;
+      } catch (err: any) {
+        console.warn(
+          `[picker] SPA と判定しましたがブラウザ描画に失敗しました (${targetUrl}):`,
+          err?.message
+        );
+      }
+    }
   }
 
   // どちらで描画したかを画面へ知らせる。ブラウザ描画を頼まれたのに落ちたときに、
@@ -504,7 +519,90 @@ export async function fetchProxyPage(
   return html;
 }
 
-export async function getPageInfo(targetUrl: string): Promise<{ title: string; url: string }> {
+export interface PageInfo {
+  title: string;
+  url: string;
+  /** 静的 HTML が SPA の起動用シェルだったため、ピッカーも最初から描画済み DOM を使う。 */
+  renderMode?: 'browser';
+}
+
+const META_TAG = /<meta\b[^>]*>/gi;
+
+function textFromHtml(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const JSON_LD_TAG = /<script\b[^>]*\btype\s*=\s*(['"])?application\/ld\+json\1[^>]*>([\s\S]*?)<\/script\s*>/gi;
+
+/**
+ * 構造化データ (JSON-LD) から名前を拾う。<title> も OGP も持たないページの最後の頼み。
+ * 配列や @graph でぶら下げる書き方があるので、浅く辿って最初に見つけた名前を採る。
+ */
+function jsonLdTitleOf(html: string): string {
+  for (const tag of html.matchAll(JSON_LD_TAG)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(tag[2]);
+    } catch {
+      continue; // 壊れた JSON-LD を置いているページは珍しくない
+    }
+
+    const queue: unknown[] = Array.isArray(parsed) ? [...parsed] : [parsed];
+    while (queue.length > 0) {
+      const node = queue.shift();
+      if (!node || typeof node !== 'object') continue;
+      const record = node as Record<string, unknown>;
+      if (Array.isArray(record['@graph'])) queue.push(...record['@graph']);
+      for (const key of ['headline', 'name']) {
+        const value = record[key];
+        if (typeof value === 'string' && value.trim()) return textFromHtml(value);
+      }
+    }
+  }
+  return '';
+}
+
+function staticTitleOf(html: string): string {
+  const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  if (title && textFromHtml(title)) return textFromHtml(title);
+
+  const preferred = ['og:title', 'twitter:title'];
+  for (const key of preferred) {
+    for (const tag of html.match(META_TAG) || []) {
+      const name = (attributeOf(tag, 'property') || attributeOf(tag, 'name') || '').toLowerCase();
+      if (name !== key) continue;
+      const content = attributeOf(tag, 'content');
+      if (content) return textFromHtml(content);
+    }
+  }
+  return jsonLdTitleOf(html);
+}
+
+/**
+ * iframe へ静的 HTML を渡しても SPA の module script は別オリジン扱いで CORS に阻まれる。
+ * 本文がほぼ空で module script とアプリ用 root があるものだけ、描画済みスナップショットを
+ * 先に選ぶ。サイト名・ドメイン名には依存しない保守的な判定。
+ */
+export function isLikelyClientRenderedShell(html: string): boolean {
+  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] || '';
+  const visibleText = textFromHtml(
+    body.replace(/<(script|style|template|noscript)\b[\s\S]*?<\/\1\s*>/gi, '')
+  );
+  const hasModule = /<script\b[^>]*\btype\s*=\s*(['"])?module\1[^>]*>/i.test(html);
+  const hasAppRoot = /<(?:div|main)\b[^>]*\bid\s*=\s*(['"])?(?:app|root|__next)\1[^>]*>/i.test(body);
+  return hasModule && hasAppRoot && visibleText.length < 80;
+}
+
+export async function getPageInfo(targetUrl: string): Promise<PageInfo> {
   try {
     const response = await axios.get(targetUrl, {
       headers: {
@@ -513,11 +611,22 @@ export async function getPageInfo(targetUrl: string): Promise<{ title: string; u
       responseType: 'text',
       timeout: 8000,
     });
-    const html = response.data;
-    const match = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = match ? match[1].trim() : '';
-    return { title: title || targetUrl, url: targetUrl };
-  } catch (e) {
+    const html = typeof response.data === 'string' ? response.data : '';
+    const staticTitle = staticTitleOf(html);
+    if (!isLikelyClientRenderedShell(html)) {
+      return { title: staticTitle || targetUrl, url: targetUrl };
+    }
+
+    try {
+      // ピッカーが直後に開く描画と同じものを使う。スナップショットは短時間キャッシュされる
+      // ので、ここで一度描いておけばピッカーはもう待たされない。
+      const rendered = await renderPageHtml(targetUrl);
+      return { title: staticTitleOf(rendered) || staticTitle || targetUrl, url: targetUrl, renderMode: 'browser' };
+    } catch {
+      // 描画ブラウザが一時的に使えなくても、ピッカー側は従来どおり静的 HTML へ戻れる。
+      return { title: staticTitle || targetUrl, url: targetUrl, renderMode: 'browser' };
+    }
+  } catch {
     return { title: targetUrl, url: targetUrl };
   }
 }

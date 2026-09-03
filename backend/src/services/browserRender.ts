@@ -191,10 +191,14 @@ export interface CardImageCandidate {
   width: number;
   height: number;
   score: number;
+  /** 同じ表示サイズで何枚も並んでいた（＝一覧のサムネイル）か */
+  repeated?: boolean;
 }
 
-// ロゴ・スペーサー・共通バナーの類。ファイル名で分かるものはここで落とす。
-const CARD_IMAGE_NOISE = 'logo|sprite|spacer|blank|dummy|no[-_]?image|placeholder|icon|avatar|banner|ad[-_]';
+// ロゴ・スペーサー・ダミーの類。ファイル名で分かるものはここで落とす。
+// icon / avatar / banner は落とさない。プロフィール画像やヘッダー画像は「そのページの絵」
+// であることが多く、名前ではなく大きさと置き場所で判断した方が当たる。
+const CARD_IMAGE_NOISE = 'logo|sprite|spacer|blank|dummy|no[-_]?image|placeholder|ad[-_]';
 
 // ブラウザ側で評価するコード。BFF の tsconfig には DOM の型が無いので文字列で持つ。
 // 監視対象セレクタにマッチした要素を起点に、そこから外へ数段だけ広げながら画像を集める。
@@ -202,7 +206,7 @@ const CARD_IMAGE_NOISE = 'logo|sprite|spacer|blank|dummy|no[-_]?image|placeholde
 // 監視範囲にすれば「同じサイトの別作品」でも別の絵が採れる。
 // String.raw なのは、埋め込む正規表現のバックスラッシュをそのまま渡すため
 // （素のテンプレートリテラルだと  が 8 進エスケープとして解釈されてしまう）。
-const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
+const CARD_IMAGE_SCRIPT = String.raw`(async (selectors, noisePattern) => {
   const MIN_SIDE = 100;      // これ以下は装飾アイコンとみなす
   const MAX_ASPECT = 4;      // 横長・縦長すぎるものは帯や区切り線
   // 監視要素からどこまで外へ広げるか。
@@ -210,7 +214,24 @@ const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
   // 6〜7 段かかる（a → div → li → ul → nav → 一覧 → 作品情報）。浅すぎると何も採れない。
   const MAX_ANCESTOR_STEPS = 10;
   const noise = new RegExp(noisePattern, 'i');
-  const CHROME = 'header,nav,footer,aside,[role="banner"],[role="navigation"],[role="contentinfo"]';
+  // ページ共通のクロム。ここに置かれた絵はどのページでも同じなので採らない。
+  const PAGE_CHROME = 'nav,footer,aside,[role="banner"],[role="navigation"],[role="contentinfo"]';
+  // <header> はサイト共通ヘッダーにも「その節の見出し」にも使われる。本文の中にある後者には
+  // プロフィール画像や作品のメインビジュアルが入るので、落とすのは前者だけにする。
+  const CONTENT_SECTION = 'main,article,section,[role="main"]';
+  // 一覧のサムネイルは同じ表示サイズで何枚も並ぶ。ページを代表する絵としては単独で置かれた
+  // 画像（プロフィール画像やメインビジュアル）の方が確からしいので、後で順位を落とす。
+  // 枚数だけで見るので、クラス名の付け方や DOM の作りには依存しない。
+  const REPEAT_THRESHOLD = 3;
+  // 実寸を測るのは上位だけ。全部測ると一覧ページで数十枚ぶん待つことになる。
+  const MEASURE_LIMIT = 12;
+  const MEASURE_TIMEOUT_MS = 4000;
+
+  const isPageChrome = (el) => {
+    if (el.closest(PAGE_CHROME)) return true;
+    const header = el.closest('header');
+    return Boolean(header) && !header.closest(CONTENT_SECTION);
+  };
 
   const resolveRoots = () => {
     const found = [];
@@ -258,6 +279,16 @@ const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
     return entries[0][0];
   };
 
+  // 画像そのものの大きさ。表示サイズは CSS でいくらでも変えられるので、これで裏を取る。
+  // 読めなかったものは null にして、今までどおり表示サイズだけの判断に任せる。
+  const measure = (url) => new Promise((resolve) => {
+    const probe = new Image();
+    probe.onload = () => resolve({ width: probe.naturalWidth, height: probe.naturalHeight });
+    probe.onerror = () => resolve(null);
+    setTimeout(() => resolve(null), MEASURE_TIMEOUT_MS);
+    probe.src = url;
+  });
+
   const collected = new Map();
 
   const consider = (el, rawUrl, depth) => {
@@ -271,7 +302,14 @@ const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
 
     const aspect = width / height;
     if (aspect > MAX_ASPECT || aspect < 1 / MAX_ASPECT) return;
-    if (el.closest(CHROME)) return;
+    if (isPageChrome(el)) return;
+
+    // <img> の表示サイズは CSS でいくらでも引き伸ばせる。矢印やアイコンの gif を
+    // 掴まないよう、元画像の実寸も見る。読み込み前や CSS 背景は実寸が取れないので、
+    // その場合は今までどおり表示サイズだけで判断する。
+    if (el.naturalWidth && el.naturalHeight) {
+      if (el.naturalWidth < MIN_SIDE || el.naturalHeight < MIN_SIDE) return;
+    }
 
     const style = getComputedStyle(el);
     if (style.visibility === 'hidden' || style.display === 'none' || parseFloat(style.opacity) < 0.1) return;
@@ -307,7 +345,8 @@ const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
     return collected.size > before;
   };
 
-  for (const root of resolveRoots()) {
+  const roots = resolveRoots();
+  for (const root of roots) {
     let node = root;
     for (let depth = 0; depth <= MAX_ANCESTOR_STEPS && node; depth++) {
       // 近い階層で見つかったら、そこで打ち切って外へ広げない
@@ -316,7 +355,45 @@ const CARD_IMAGE_SCRIPT = String.raw`((selectors, noisePattern) => {
     }
   }
 
-  return [...collected.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+  // 同じ表示サイズのものしか採れていないなら、拾えたのは一覧のサムネイルだけ。
+  // 一覧を監視しているとこうなる（投稿カードや話数一覧）。その一覧の外まで見て、
+  // ページを代表する絵が別にあるかを確かめる。兄弟は祖先を共有するので起点は 1 つでよい。
+  const onlyListItems = () => {
+    const items = [...collected.values()];
+    if (items.length < REPEAT_THRESHOLD) return false;
+    const size = items[0].width + 'x' + items[0].height;
+    return items.every((item) => item.width + 'x' + item.height === size);
+  };
+
+  if (roots.length > 0 && onlyListItems()) {
+    let node = roots[0];
+    for (let depth = 0; depth <= MAX_ANCESTOR_STEPS && node; depth++) {
+      collectFrom(node, depth);
+      node = node.parentElement;
+    }
+  }
+
+  const found = [...collected.values()];
+  const sameSize = new Map();
+  for (const item of found) {
+    const key = item.width + 'x' + item.height;
+    sameSize.set(key, (sameSize.get(key) || 0) + 1);
+  }
+  for (const item of found) {
+    item.repeated = sameSize.get(item.width + 'x' + item.height) >= REPEAT_THRESHOLD;
+  }
+
+  // 一覧の 1 枚より、単独で置かれている絵を先に出す。単独のものが無ければ今までどおり。
+  const ranked = found
+    .sort((a, b) => (a.repeated === b.repeated ? b.score - a.score : a.repeated ? 1 : -1))
+    .slice(0, MEASURE_LIMIT);
+
+  // CSS 背景は要素の大きさと画像の大きさが一致しない（16px の矢印を横長の帯の右端に
+  // 置くだけ、など）。実物を読んで実寸を測り、装飾用の小さな画像をここで落とす。
+  const measured = await Promise.all(ranked.map((item) => measure(item.url)));
+  return ranked
+    .filter((item, i) => !measured[i] || (measured[i].width >= MIN_SIDE && measured[i].height >= MIN_SIDE))
+    .slice(0, 5);
 })('PLACEHOLDER_SELECTORS', 'PLACEHOLDER_NOISE')`;
 
 // ブラウザへ渡す完成形のコードを組み立てる。

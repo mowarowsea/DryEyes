@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fetchProxyPage } from '../proxy.js';
+import { fetchProxyPage, getPageInfo, isLikelyClientRenderedShell } from '../proxy.js';
 import { renderPageHtml } from '../browserRender.js';
 import axios from 'axios';
 
@@ -10,6 +10,12 @@ vi.mock('../browserRender.js', async () => {
 });
 
 const mockRender = renderPageHtml as unknown as ReturnType<typeof vi.fn>;
+
+// Vite で組んだ SPA が返してくる起動用シェル。本文が空で、中身は module script が組み立てる。
+const SPA_SHELL =
+  '<!doctype html><html><head><title>Kemono</title>' +
+  '<script type="module" crossorigin src="/assets/index.js"></script>' +
+  '</head><body><div id="root"></div></body></html>';
 
 describe('fetchProxyPage', () => {
   beforeEach(() => {
@@ -200,5 +206,131 @@ describe('fetchProxyPage', () => {
     expect(result).toContain('static');
     expect(result).toContain("mode:'static'");
     expect(axios.get).toHaveBeenCalled();
+  });
+
+  // SPA のシェルを iframe に入れても、ページ自身の module script が CORS で止まるので
+  // 中身は組み上がらない。崩れた枠を一度見せる意味が無いので、ここは自分で切り替える。
+  it('should switch to the browser on its own when the raw HTML is only an SPA shell', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: SPA_SHELL });
+    mockRender.mockReset();
+    mockRender.mockResolvedValueOnce('<html><head></head><body><h1>ルッチーフ</h1></body></html>');
+
+    const result = await fetchProxyPage('https://example.com/user/1');
+
+    expect(mockRender).toHaveBeenCalledWith('https://example.com/user/1', false);
+    expect(result).toContain('ルッチーフ');
+    expect(result).toContain("mode:'browser'");
+  });
+
+  it('should still show the raw shell when the browser cannot be reached', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: SPA_SHELL });
+
+    const result = await fetchProxyPage('https://example.com/user/1');
+
+    expect(result).toContain('id="root"');
+    expect(result).toContain("mode:'static'");
+  });
+});
+
+describe('isLikelyClientRenderedShell', () => {
+  it('SPA の起動用シェルを見分ける', () => {
+    expect(isLikelyClientRenderedShell(SPA_SHELL)).toBe(true);
+  });
+
+  // 読める本文があるページは、静的 HTML のまま出したほうが速い
+  it('本文があるページは対象にしない', () => {
+    const html =
+      '<html><head><script type="module" src="/a.js"></script></head>' +
+      '<body><div id="root"><h1>第12話</h1><p>' +
+      'この段落には読める文章がしっかり入っているので、起動用シェルではありません。'.repeat(2) +
+      '</p></div></body></html>';
+    expect(isLikelyClientRenderedShell(html)).toBe(false);
+  });
+
+  it('module script が無ければ対象にしない', () => {
+    const html = '<html><head></head><body><div id="root"></div></body></html>';
+    expect(isLikelyClientRenderedShell(html)).toBe(false);
+  });
+
+  it('アプリの入れ物が無ければ対象にしない', () => {
+    const html = '<html><head><script type="module" src="/a.js"></script></head><body></body></html>';
+    expect(isLikelyClientRenderedShell(html)).toBe(false);
+  });
+});
+
+describe('getPageInfo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRender.mockReset();
+  });
+
+  it('静的な <title> をそのまま監視名にする', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: '<html><head><title>第12話 公開</title></head><body>本文</body></html>',
+    });
+
+    await expect(getPageInfo('https://example.com/e/1')).resolves.toEqual({
+      title: '第12話 公開',
+      url: 'https://example.com/e/1',
+    });
+    // 静的なページのためにブラウザを起こさない（登録画面が 10 秒待たされてしまう）
+    expect(mockRender).not.toHaveBeenCalled();
+  });
+
+  it('<title> が無ければ og:title を使う', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: '<html><head><meta property="og:title" content="作品ページ"></head><body>本文</body></html>',
+    });
+
+    const info = await getPageInfo('https://example.com/w/1');
+    expect(info.title).toBe('作品ページ');
+  });
+
+  it('<title> も OGP も無ければ JSON-LD の名前を使う', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data:
+        '<html><head><script type="application/ld+json">' +
+        '{"@context":"https://schema.org","@graph":[{"@type":"Article","headline":"第13話"}]}' +
+        '</script></head><body>本文</body></html>',
+    });
+
+    const info = await getPageInfo('https://example.com/w/2');
+    expect(info.title).toBe('第13話');
+  });
+
+  // SPA の静的 HTML はサイト名だけを返す。ブラウザで見えている名前と揃える。
+  it('SPA のシェルなら描画後のタイトルを使う', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: SPA_SHELL });
+    mockRender.mockResolvedValueOnce(
+      '<html><head><title>Posts of "ルッチーフ" from "Pixiv Fanbox" | Kemono</title>' +
+        '</head><body><h1>ルッチーフ</h1></body></html>'
+    );
+
+    const info = await getPageInfo('https://example.com/user/1');
+
+    expect(info.title).toContain('ルッチーフ');
+    expect(info.renderMode).toBe('browser');
+    // ピッカーがすぐ後に開く描画と同じものを頼み、スナップショットのキャッシュに乗せる
+    expect(mockRender).toHaveBeenCalledWith('https://example.com/user/1');
+  });
+
+  it('描画に失敗しても静的なタイトルで登録を続けられる', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: SPA_SHELL });
+    mockRender.mockRejectedValueOnce(new Error('browser unavailable'));
+
+    const info = await getPageInfo('https://example.com/user/1');
+
+    expect(info.title).toBe('Kemono');
+    // ピッカーは描画済み DOM を試す価値があるので、判定結果は伝えたままにする
+    expect(info.renderMode).toBe('browser');
+  });
+
+  it('ページが読めなければ URL をそのまま名前にする', async () => {
+    (axios.get as any).mockRejectedValueOnce(new Error('offline'));
+
+    await expect(getPageInfo('https://example.com/x')).resolves.toEqual({
+      title: 'https://example.com/x',
+      url: 'https://example.com/x',
+    });
   });
 });

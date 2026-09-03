@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { extractSocialImageUrls } from '../htmlMeta.js';
 import { buildCardImageScript } from '../browserRender.js';
-import { sniffImageType } from '../cardImage.js';
+import {
+  isFresh,
+  isLikelySiteWideSocialImage,
+  RESOLVER_VERSION,
+  sniffImageType,
+} from '../cardImage.js';
+import type { CardImageRecord } from '../../types/index.js';
 
 describe('extractSocialImageUrls', () => {
   it('og:image を拾う', () => {
@@ -53,6 +59,91 @@ describe('buildCardImageScript', () => {
     const script = buildCardImageScript([]);
     expect(script).toContain('[]');
     expect(() => new Function(`return ${script};`)).not.toThrow();
+  });
+
+  // プロフィール画像は名前に icon / avatar が入り、本文側の <header> に置かれていることが多い。
+  // 名前だけで落とすとそこに手が届かないので、置き場所と大きさで判断させている。
+  it('icon / avatar を名前だけで落とさない', () => {
+    const script = buildCardImageScript([]);
+    expect(script).toContain('logo|sprite');
+    expect(script).not.toContain('|icon|');
+    expect(script).not.toContain('|avatar|');
+  });
+
+  it('サイト共通のクロムと、本文の中の <header> を区別している', () => {
+    const script = buildCardImageScript([]);
+    expect(script).toContain('PAGE_CHROME');
+    expect(script).toContain('CONTENT_SECTION');
+  });
+
+  // 一覧のサムネイルばかり拾って終わらないよう、並んでいる絵は後回しにする
+  it('一覧のサムネイルを見分けて、実寸でも裏を取る', () => {
+    const script = buildCardImageScript(['.post-card']);
+    expect(script).toContain('REPEAT_THRESHOLD');
+    expect(script).toContain('naturalWidth');
+  });
+});
+
+describe('isLikelySiteWideSocialImage', () => {
+  it('ロゴと名乗っている OGP は低信頼にする', () => {
+    // Kemono はどのユーザーのページでもこれを返してくる
+    expect(isLikelySiteWideSocialImage('https://kemono.cr/static/kemono-logo.svg')).toBe(true);
+    expect(isLikelySiteWideSocialImage('https://example.com/assets/logo/ogp.png')).toBe(true);
+    expect(isLikelySiteWideSocialImage('https://example.com/img/favicon.png')).toBe(true);
+  });
+
+  it('プロフィール画像や作品の絵は今までどおり優先する', () => {
+    expect(isLikelySiteWideSocialImage('https://img.kemono.cr/icons/fanbox/11565305')).toBe(false);
+    expect(isLikelySiteWideSocialImage('https://cdn.example.com/works/42/cover.jpg')).toBe(false);
+    // 名前の一部にたまたま logo が入っているだけのものは巻き込まない
+    expect(isLikelySiteWideSocialImage('https://cdn.example.com/works/logograph.jpg')).toBe(false);
+  });
+
+  it('URL として読めないものは判断しない', () => {
+    expect(isLikelySiteWideSocialImage('logo.png')).toBe(false);
+  });
+});
+
+describe('isFresh', () => {
+  const hoursAgo = (n: number) => new Date(Date.now() - n * 60 * 60 * 1000).toISOString();
+  const record = (extra: Partial<CardImageRecord> = {}): CardImageRecord => ({
+    pageUrl: 'https://example.com/a',
+    selectorKey: '.item',
+    imageUrl: 'https://cdn.example.com/a.jpg',
+    socialImageUrl: null,
+    source: 'element',
+    resolvedAt: hoursAgo(1),
+    resolverVersion: RESOLVER_VERSION,
+    ...extra,
+  });
+
+  it('監視の設定も決め方も同じなら、決まっている絵を使い回す', () => {
+    expect(isFresh(record(), 'https://example.com/a', '.item')).toBe(true);
+  });
+
+  it('監視 URL や監視範囲が変わったら採り直す', () => {
+    expect(isFresh(record(), 'https://example.com/b', '.item')).toBe(false);
+    expect(isFresh(record(), 'https://example.com/a', '.other')).toBe(false);
+  });
+
+  // 決め方を変えた回は、設定が同じでも一度採り直させたい
+  it('決め方を変える前の記録は採り直す', () => {
+    expect(isFresh(record({ resolverVersion: undefined }), 'https://example.com/a', '.item')).toBe(false);
+    expect(isFresh(record({ resolverVersion: RESOLVER_VERSION - 1 }), 'https://example.com/a', '.item')).toBe(false);
+  });
+
+  // ブラウザが一時的に落ちていただけの結果を、一週間抱え込まないようにする
+  it('ブラウザに繋げず OGP のまま置いた記録は短命にする', () => {
+    const provisional = (h: number) =>
+      isFresh(record({ provisional: true, resolvedAt: hoursAgo(h) }), 'https://example.com/a', '.item');
+    expect(provisional(1)).toBe(true);
+    expect(provisional(7)).toBe(false);
+    // 普通に決まった記録は一週間もつ
+    expect(isFresh(record({ resolvedAt: hoursAgo(7) }), 'https://example.com/a', '.item')).toBe(true);
+  });
+
+  it('記録が無ければ採り直す', () => {
+    expect(isFresh(undefined, 'https://example.com/a', '.item')).toBe(false);
   });
 });
 
