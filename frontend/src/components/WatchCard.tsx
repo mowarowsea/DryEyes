@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Copy,
   Globe,
+  Image as ImageIcon,
   MoreVertical,
   Pause,
   Play,
@@ -15,6 +16,7 @@ import { WatchModel } from '../types';
 import { unviewedCountOf } from '../watchStatus';
 import { useClickOutside } from '../hooks/useClickOutside';
 import { useCardImage } from '../hooks/useCardImage';
+import { CARD_IMAGE_MASK, CARD_IMAGE_WIDTH, cropBackgroundStyle } from '../cardImage';
 import { apiUrl } from '../api';
 
 interface WatchCardProps {
@@ -31,6 +33,8 @@ interface WatchCardProps {
   onCopyTo: (watch: WatchModel) => void;
   // 監視先が別 URL へ転送されていたときの確認を開く
   onReviewRedirect: (watch: WatchModel) => void;
+  // 背景に敷く絵を選び直す
+  onChangeImage: (watch: WatchModel) => void;
 }
 
 // 転送先の見分けはホストで付くので、帯にはそこだけ出す
@@ -53,18 +57,6 @@ const faviconUrlOf = (url: string): string | null => {
   }
   return apiUrl(`/proxy/favicon?url=${encodeURIComponent(url)}`);
 };
-
-// 絵を敷くのはカードの右側だけ。左半分は文字の下なので絵を置かない。
-//
-// 幅を絞るのは見た目のためだけではない。background-size: cover は「この箱を覆う」
-// 倍率まで拡大するので、カード全幅の箱に縦長の表紙を敷くと拡大率が上がりすぎて、
-// 絵の真ん中の細い帯しか出てこない。実際に見せる幅の箱に絞れば、その分だけ
-// 縮小されて絵が広く入る。
-const CARD_IMAGE_WIDTH = '58%';
-
-// レイヤーの左端から右端へ向かってはっきりさせる（右端がいちばん濃い）
-const CARD_IMAGE_MASK =
-  'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.3) 32%, rgba(0,0,0,0.72) 68%, #000 100%)';
 
 // 時刻フォーマット
 const formatTime = (ts: number | null) => {
@@ -94,6 +86,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onDelete,
   onCopyTo,
   onReviewRedirect,
+  onChangeImage,
 }) => {
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -101,6 +94,9 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   const [faviconFailed, setFaviconFailed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const imageLayerRef = useRef<HTMLDivElement>(null);
+  // 切り抜きを当てるには、絵を敷く箱の実寸が要る（割合で持っている指定を px へ戻すため）
+  const [imageBox, setImageBox] = useState<{ width: number; height: number } | null>(null);
 
   // 並び順によっては登録した監視が画面の外に入る（既定の更新日時順では末尾に付く）。
   // 光らせるだけでは気づけないので、その位置まで一緒に運ぶ。
@@ -115,6 +111,21 @@ export const WatchCard: React.FC<WatchCardProps> = ({
 
   // そのページらしい絵。決められなかった監視では null になり、従来どおりの見た目になる。
   const cardImage = useCardImage(watch.id, showImage);
+
+  // 箱の大きさは画面幅でもカードの中身（エラー帯や移転の確認）でも変わるので、見張って追う。
+  // 切り抜きを指定していない監視では要らない計算なので、そのときは測らない。
+  useEffect(() => {
+    const layer = imageLayerRef.current;
+    if (!layer || !cardImage?.crop) return;
+
+    const measure = () => setImageBox({ width: layer.clientWidth, height: layer.clientHeight });
+    measure();
+    // jsdom など ResizeObserver が無い環境では、初回に測った値のまま使う
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(layer);
+    return () => observer.disconnect();
+  }, [cardImage]);
 
   useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
 
@@ -168,6 +179,13 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   const menuItemClass =
     'w-full px-3 py-2.5 text-left text-xs font-medium flex items-center gap-2 transition disabled:opacity-40';
 
+  // 切り抜きの指定があり、箱の大きさも測れているときだけ当てる。
+  // 測る前は今までどおり cover / center で敷いておく（読み込み中に絵が飛ばない）。
+  const cropStyle =
+    cardImage?.crop && imageBox && imageBox.width > 0 && imageBox.height > 0
+      ? cropBackgroundStyle(cardImage.crop, imageBox.width, imageBox.height)
+      : null;
+
   return (
     <div
       ref={cardRef}
@@ -213,12 +231,14 @@ export const WatchCard: React.FC<WatchCardProps> = ({
           className="pointer-events-none absolute inset-0 z-0 rounded-xl overflow-hidden"
         >
           <div
+            ref={imageLayerRef}
             className="absolute inset-y-0 right-0 bg-cover bg-center opacity-80 dark:opacity-60"
             style={{
               width: CARD_IMAGE_WIDTH,
-              backgroundImage: `url(${cardImage})`,
+              backgroundImage: `url(${cardImage.url})`,
               maskImage: CARD_IMAGE_MASK,
               WebkitMaskImage: CARD_IMAGE_MASK,
+              ...cropStyle,
             }}
           />
         </div>
@@ -314,6 +334,21 @@ export const WatchCard: React.FC<WatchCardProps> = ({
                 <Settings2 className="w-3.5 h-3.5 text-slate-400" />
                 設定を変更
               </button>
+
+              {/* 背景の絵は機械が推測したもので、当たらないこともある。
+                  絵を出していない設定のときは変えても見えないので、そのときは出さない。 */}
+              {showImage && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onChangeImage(watch);
+                  }}
+                  className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-slate-400" />
+                  背景画像を変更
+                </button>
+              )}
 
               <button
                 onClick={() => {

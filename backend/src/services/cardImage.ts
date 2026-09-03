@@ -1,9 +1,20 @@
 import axios from 'axios';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { config } from '../config.js';
 import { JsonStore } from './store.js';
 import { extractSocialImageUrls } from './htmlMeta.js';
 import { findCardImageCandidates, RENDER_USER_AGENT } from './browserRender.js';
-import { CardImageRecord, CardImageStoreData, WatchModel } from '../types/index.js';
+import {
+  CardImageChoice,
+  CardImageCrop,
+  CardImageOptionsResponse,
+  CardImageOverride,
+  CardImageRecord,
+  CardImageStoreData,
+  WatchModel,
+} from '../types/index.js';
 
 // 監視カードの背景に敷く「そのページらしい絵」を決める。
 //
@@ -24,8 +35,15 @@ import { CardImageRecord, CardImageStoreData, WatchModel } from '../types/index.
 //
 // 決まった絵はファイルに残す。毎回ページを開き直さないためと、
 // ①の重複判定に他の監視の og:image が要るため。
+//
+// ここまでは全部「機械が推測した結果」なので、当たらないこともある。
+// ユーザーがカードのメニューから絵を選び直したときはその指定 (override) を必ず優先し、
+// 自動判定は一切走らせない。
 
-const store = new JsonStore<CardImageStoreData>('watch-card-images.json', { images: {} });
+const store = new JsonStore<CardImageStoreData>('watch-card-images.json', {
+  images: {},
+  overrides: {},
+});
 
 // 絵の決め方を変えたら上げる。上がっていれば、URL もセレクタも同じ記録を採り直させられる。
 // v2: サイト共通のロゴらしい OGP を後回しにし、本文やプロフィール領域の絵を先に見るようにした。
@@ -329,17 +347,259 @@ async function fetchImage(imageUrl: string, pageUrl: string): Promise<CardImageA
   return asset;
 }
 
-/** カード背景として表示する画像。決められなければ null（画面側は今までどおりの見た目に戻る）。 */
-export async function getCardImage(watch: WatchModel): Promise<CardImageAsset | null> {
+/**
+ * カード背景として表示する画像と、その切り抜き指定。
+ * 決められなければ null（画面側は今までどおりの見た目に戻る）。
+ *
+ * 切り抜きは画像そのものには焼き込まず、割合のまま画面へ渡して CSS で当てる。
+ * カードの箱の大きさは端末ごとに違ううえ、エラー帯が出れば同じ端末でも変わるため、
+ * BFF 側で切ってしまうと「その箱にちょうど合う絵」を作れない。
+ */
+export async function getCardImage(
+  watch: WatchModel
+): Promise<{ asset: CardImageAsset; crop: CardImageCrop | null } | null> {
+  const override = getCardImageOverride(watch.id);
+
+  if (override) {
+    if (override.mode === 'none') return null;
+    const crop = override.crop ?? null;
+
+    if (override.mode === 'upload' && override.uploadFile) {
+      const asset = readUploadedImage(override.uploadFile);
+      return asset ? { asset, crop } : null;
+    }
+    if (override.mode === 'url' && override.imageUrl) {
+      const asset = await fetchImage(override.imageUrl, watch.url);
+      return asset ? { asset, crop } : null;
+    }
+    return null;
+  }
+
   const record = await resolveCardImage(watch);
   if (!record.imageUrl) return null;
-  return fetchImage(record.imageUrl, record.pageUrl);
+  const asset = await fetchImage(record.imageUrl, record.pageUrl);
+  return asset ? { asset, crop: null } : null;
 }
 
 /** 監視を消したときに、その記録も消す */
 export function clearCardImage(watchId: string): void {
-  if (!store.get().images[watchId]) return;
-  store.update((data) => {
-    delete data.images[watchId];
+  const data = store.get();
+  if (!data.images[watchId] && !data.overrides[watchId]) return;
+  removeUploadedImages(watchId);
+  store.update((current) => {
+    delete current.images[watchId];
+    delete current.overrides[watchId];
   });
+}
+
+// ---------------------------------------------------------------------------
+// ユーザーが自分で決めた背景
+// ---------------------------------------------------------------------------
+
+// 手元から登録された絵の置き場所。JSON に base64 で抱えると、
+// 一覧を開くたびに全監視ぶんの画像を読み込むことになるのでファイルに出す。
+const UPLOAD_DIR = path.join(config.dataDir, 'card-images');
+
+const UPLOAD_EXTENSION: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+  'image/bmp': 'bmp',
+  'image/heic': 'heic',
+  'image/svg+xml': 'svg',
+};
+
+// 監視 ID はそのままファイル名になるので、パスに使える文字だけに落とす。
+// 所有者チェックを通った ID しか来ないが、名前の組み立てで外へ出られないことは
+// 呼び出し元に頼らず、ここで保証する。
+function uploadKeyOf(watchId: string): string {
+  return watchId.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function removeUploadedImages(watchId: string): void {
+  const key = uploadKeyOf(watchId);
+  if (!key) return;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(UPLOAD_DIR);
+  } catch {
+    return; // まだ一度も登録されていない
+  }
+  for (const name of entries) {
+    if (name !== key && !name.startsWith(`${key}.`)) continue;
+    const full = path.join(UPLOAD_DIR, name);
+    imageCache.delete(`file:${full}`);
+    try {
+      fs.unlinkSync(full);
+    } catch {
+      /* 消せなくても上書きで置き換わるので致命的ではない */
+    }
+  }
+}
+
+function readUploadedImage(fileName: string): CardImageAsset | null {
+  // 保存したファイル名しか受け取らないが、記録が壊れていても外へ出ないようにする
+  const full = path.join(UPLOAD_DIR, path.basename(fileName));
+  const key = `file:${full}`;
+
+  const cached = readImageCache(key);
+  if (cached !== undefined) return cached;
+
+  let asset: CardImageAsset | null = null;
+  try {
+    const data = fs.readFileSync(full);
+    const contentType = sniffImageType(data);
+    if (contentType) {
+      const etag = `"${crypto.createHash('sha1').update(data).digest('base64url')}"`;
+      asset = { contentType, data, etag };
+    }
+  } catch {
+    asset = null;
+  }
+
+  writeImageCache(key, asset);
+  return asset;
+}
+
+/**
+ * 手元から登録された画像を保存し、ファイル名を返す。
+ * 中身を見て種類を決めるのは取得した画像と同じ理由で、拡張子や Content-Type は当てにしない。
+ */
+export function saveUploadedCardImage(watchId: string, data: Buffer): string {
+  const contentType = sniffImageType(data);
+  if (!contentType) throw new Error('画像として読み取れないファイルです');
+  if (data.length > MAX_IMAGE_BYTES) throw new Error('画像が大きすぎます');
+
+  const key = uploadKeyOf(watchId);
+  if (!key) throw new Error('監視 ID が不正です');
+
+  // 拡張子が変わると古い絵が残るので、先に同じ監視のぶんを片付ける
+  removeUploadedImages(watchId);
+
+  const fileName = `${key}.${UPLOAD_EXTENSION[contentType] || 'img'}`;
+  const full = path.join(UPLOAD_DIR, fileName);
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  fs.writeFileSync(full, data);
+  imageCache.delete(`file:${full}`);
+  return fileName;
+}
+
+export function getCardImageOverride(watchId: string): CardImageOverride | null {
+  return store.get().overrides[watchId] ?? null;
+}
+
+export function setCardImageOverride(watchId: string, override: CardImageOverride | null): void {
+  // 自動へ戻すときは、手元の絵も残さない
+  if (!override || override.mode !== 'upload') removeUploadedImages(watchId);
+
+  store.update((data) => {
+    if (override) {
+      data.overrides[watchId] = override;
+      // 自動判定の記録は「今の設定でどう決まったか」でしかない。
+      // 指定を外したときに古い絵へ戻らないよう、ここで捨てて採り直させる。
+      delete data.images[watchId];
+    } else {
+      delete data.overrides[watchId];
+      delete data.images[watchId];
+    }
+  });
+}
+
+/**
+ * 背景に使えそうな画像の候補を集める。
+ *
+ * 自動判定と同じ材料（OGP と監視対象セレクタの近くの画像）を、順位付けだけして全部返す。
+ * 「いい感じ」を機械が当て切れないのは分かっているので、最後は人が選べるようにする。
+ * 監視対象サイトを実際にブラウザで開くため、応答には数十秒かかることがある。
+ */
+export async function listCardImageCandidates(watch: WatchModel): Promise<CardImageOptionsResponse> {
+  const override = getCardImageOverride(watch.id);
+  const selectors = selectorKeyOf(watch.includeFilters).split('\n').filter(Boolean);
+
+  const [social, elements] = await Promise.all([
+    fetchSocialImage(watch.url).catch(() => null),
+    withSlot(() => findCardImageCandidates(watch.url, selectors)).catch(() => null),
+  ]);
+
+  // いま敷いている絵。指定があればそれ、無ければ自動判定の記録。
+  const currentUrl =
+    override?.mode === 'url'
+      ? override.imageUrl || null
+      : override
+        ? null
+        : (store.get().images[watch.id]?.imageUrl ?? null);
+
+  const candidates: CardImageChoice[] = [];
+  const seen = new Set<string>();
+  const add = (url: string) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    candidates.push({ url, current: url === currentUrl });
+  };
+
+  // ページ固有の絵から先に並べる。OGP はサイト共通のロゴであることがあるので後ろ。
+  for (const item of elements || []) add(item.url);
+  if (social) add(social);
+  // 今の絵が候補に出てこないこともある（設定を変える前に決めた絵など）。
+  // 選び直したあとで元に戻せるよう、必ず選択肢に残す。
+  if (currentUrl) add(currentUrl);
+
+  return {
+    mode: override?.mode ?? 'auto',
+    crop: override?.crop ?? null,
+    // 一覧に並べても選べる数には限りがあるので、上位だけ返す
+    candidates: candidates.sort((a, b) => Number(b.current) - Number(a.current)).slice(0, 6),
+    browserFailed: elements === null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 画面とのやり取り（切り抜きの受け渡し）
+// ---------------------------------------------------------------------------
+
+// 切り抜きは画像に添えてヘッダーで返す。値は「x,y,幅,高さ,元画像の縦横比」で、
+// 位置と大きさは元画像に対する割合 (0..1)。
+export function formatCrop(crop: CardImageCrop): string {
+  return [crop.x, crop.y, crop.width, crop.height, crop.ratio].map((v) => v.toFixed(5)).join(',');
+}
+
+/**
+ * 画面から届いた切り抜きを、そのまま信じずに範囲へ収める。
+ * 壊れた値を覚えると、そのカードだけ絵が消えたり極端に拡大されたりして、
+ * 画面から直す手立てもなくなる。
+ */
+export function normalizeCrop(crop: CardImageCrop | null | undefined): CardImageCrop | null {
+  if (!crop) return null;
+  const values = [crop.x, crop.y, crop.width, crop.height, crop.ratio];
+  if (values.some((v) => typeof v !== 'number' || !Number.isFinite(v))) return null;
+  if (crop.width <= 0 || crop.height <= 0 || crop.ratio <= 0) return null;
+
+  const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+  const width = clamp(crop.width, 0.01, 1);
+  const height = clamp(crop.height, 0.01, 1);
+  return {
+    x: clamp(crop.x, 0, 1 - width),
+    y: clamp(crop.y, 0, 1 - height),
+    width,
+    height,
+    ratio: clamp(crop.ratio, 0.01, 100),
+  };
+}
+
+/**
+ * 手元から登録された画像は data: URL で届く。
+ * 中身が画像かどうかはここでは見ない。宣言された種類は当てにならないので、
+ * 保存側が実物の先頭バイトを見て決める。
+ */
+export function decodeImageDataUrl(dataUrl: string | undefined): Buffer {
+  const match = /^data:[^;,]*;base64,(.*)$/s.exec(dataUrl || '');
+  if (!match) throw new Error('画像を読み取れませんでした');
+  return Buffer.from(match[1], 'base64');
+}
+
+/** 候補のサムネイル。画面から直接読めないのはカード背景と同じ理由（Referer / UA で弾かれる）。 */
+export function fetchCandidateImage(imageUrl: string, pageUrl: string): Promise<CardImageAsset | null> {
+  return fetchImage(imageUrl, pageUrl);
 }

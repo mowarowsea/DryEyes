@@ -13,9 +13,26 @@ import {
 import { diffSnapshots, splitSnapshotLines } from '../services/diff.js';
 import { clearRedirectState, getPendingRedirect, pruneRedirectState } from '../services/redirectReview.js';
 import { acceptPendingRedirect, dismissPendingRedirect } from '../services/redirectScan.js';
-import { clearCardImage, getCardImage } from '../services/cardImage.js';
+import {
+  clearCardImage,
+  decodeImageDataUrl,
+  fetchCandidateImage,
+  formatCrop,
+  getCardImage,
+  listCardImageCandidates,
+  normalizeCrop,
+  saveUploadedCardImage,
+  setCardImageOverride,
+} from '../services/cardImage.js';
+import { assertSafeProxyTarget } from '../services/urlSafety.js';
 import { requireAuth } from '../middleware/auth.js';
-import { CreateWatchDto, UpdateWatchDto, WatchDiffResponse, WatchModel } from '../types/index.js';
+import {
+  CreateWatchDto,
+  SaveCardImageDto,
+  UpdateWatchDto,
+  WatchDiffResponse,
+  WatchModel,
+} from '../types/index.js';
 
 export const watchesRouter = Router();
 
@@ -166,10 +183,16 @@ watchesRouter.get('/:id/card-image', async (req, res) => {
   if (!ensureOwned(req.params.id, req.user!.id, res)) return;
   try {
     const watch = await changedetectionClient.getWatch(req.params.id);
-    const asset = await getCardImage(watch);
+    const result = await getCardImage(watch);
     res.setHeader('Cache-Control', 'private, no-cache');
-    if (!asset) return res.status(404).end();
+    if (!result) return res.status(404).end();
 
+    const { asset, crop } = result;
+    // 切り抜きは画像と一緒に返す。別のエンドポイントに分けると、
+    // 一覧を開くたびにカードの枚数だけ往復が増えるだけで得るものがない。
+    // 中身が変わっていないときは 304 で返すため、ヘッダーは ETag の判定より先に付ける。
+    if (crop) res.setHeader('X-Card-Image-Crop', formatCrop(crop));
+    res.setHeader('Access-Control-Expose-Headers', 'X-Card-Image-Crop');
     res.setHeader('ETag', asset.etag);
     // ブラウザは複数の検証子を並べたり W/ を付けたりするので、素の一致比較では取りこぼす
     const known = String(req.headers['if-none-match'] || '')
@@ -182,6 +205,87 @@ watchesRouter.get('/:id/card-image', async (req, res) => {
   } catch {
     res.setHeader('Cache-Control', 'private, no-cache');
     res.status(404).end();
+  }
+});
+
+// 背景に使えそうな画像の候補。監視対象サイトを実際にブラウザで開くので、数十秒かかることがある。
+watchesRouter.get('/:id/card-image/candidates', async (req, res) => {
+  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+  try {
+    const watch = await changedetectionClient.getWatch(req.params.id);
+    res.json(await listCardImageCandidates(watch));
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to list card image candidates', message: err.message });
+  }
+});
+
+// 候補のサムネイル。画面から直接読めないのはカード背景と同じ理由（Referer / UA で弾かれる）。
+// 宛先は画面が候補一覧から選んだ URL だが、ここは BFF が外へ取りに行く口なので、
+// 言われたとおりに叩かず、プレビューと同じ宛先チェックを通す。
+watchesRouter.get('/:id/card-image/candidate', async (req, res) => {
+  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+
+  const imageUrl = String(req.query.url || '');
+  if (!imageUrl) return res.status(400).json({ error: 'url parameter is required' });
+
+  try {
+    await assertSafeProxyTarget(imageUrl);
+  } catch {
+    return res.status(400).end();
+  }
+
+  try {
+    const watch = await changedetectionClient.getWatch(req.params.id);
+    const asset = await fetchCandidateImage(imageUrl, watch.url);
+    if (!asset) return res.status(404).end();
+
+    res.setHeader('Content-Type', asset.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.send(asset.data);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+// 背景の絵を決める（候補から選ぶ / 手元の画像を登録する / 絵を出さない / 自動へ戻す）
+watchesRouter.put('/:id/card-image', async (req, res) => {
+  const watchId = req.params.id;
+  if (!ensureOwned(watchId, req.user!.id, res)) return;
+
+  const dto: SaveCardImageDto = req.body || {};
+  const crop = normalizeCrop(dto.crop);
+
+  try {
+    if (dto.mode === 'auto') {
+      setCardImageOverride(watchId, null);
+    } else if (dto.mode === 'none') {
+      setCardImageOverride(watchId, { mode: 'none', updatedAt: new Date().toISOString() });
+    } else if (dto.mode === 'url') {
+      const imageUrl = String(dto.url || '');
+      if (!imageUrl) throw new Error('画像の URL が指定されていません');
+      // 保存した URL は以後カードを描くたびに BFF が取りに行く。内部向けの宛先を
+      // 覚え込まされないよう、ここで一度だけ確かめる。
+      await assertSafeProxyTarget(imageUrl);
+      setCardImageOverride(watchId, {
+        mode: 'url',
+        imageUrl,
+        crop,
+        updatedAt: new Date().toISOString(),
+      });
+    } else if (dto.mode === 'upload') {
+      const uploadFile = saveUploadedCardImage(watchId, decodeImageDataUrl(dto.dataUrl));
+      setCardImageOverride(watchId, {
+        mode: 'upload',
+        uploadFile,
+        crop,
+        updatedAt: new Date().toISOString(),
+      });
+    } else {
+      throw new Error('指定が正しくありません');
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: 'Failed to save card image', message: err.message });
   }
 });
 

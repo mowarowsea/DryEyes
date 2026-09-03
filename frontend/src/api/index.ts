@@ -7,7 +7,11 @@ import {
   MeResponse,
   WatchDiff,
   PublicUser,
+  CardImageCrop,
+  CardImageOptions,
+  SaveCardImageRequest,
 } from '../types';
+import { parseCropHeader } from '../cardImage';
 
 // 画面はサブパス配下（例: /DryEyes/）に置かれることがあるため、API の URL も
 // 配信パスを基準に組み立てる。import.meta.env.BASE_URL は必ず末尾スラッシュ付き。
@@ -195,17 +199,41 @@ export const api = {
     if (!res.ok) throw new Error('Failed to trigger check');
   },
 
-  // カードの背景に敷く画像。決められなかった監視は null を返す。
+  // カードの背景に敷く画像と、その切り抜き指定。決められなかった監視は null を返す。
   // <img src> で直接読めないのは、このエンドポイントが Authorization を要求するため
   // （ファビコンと違い、監視 ID から本人の監視内容が見えることになるので認証を外せない）。
-  async getCardImageBlob(id: string): Promise<Blob | null> {
+  async getCardImage(id: string): Promise<{ blob: Blob; crop: CardImageCrop | null } | null> {
     // cache: 'no-cache' で必ずサーバーへ問い合わせる。同じ URL のまま中身が変わりうるので、
     // ブラウザのキャッシュに寝かせると絵を採り直しても古いままになる
     // （実際、監視ごとの表紙に直したあとも共通画像が出続けた）。
     // 変わっていなければ ETag で 304 が返るだけなので、転送は起きない。
     const res = await request(`/watches/${id}/card-image`, { cache: 'no-cache' });
     if (!res.ok) return null;
+    // 切り抜きは画像と同じ応答のヘッダーに載っている（カードの枚数だけ往復を増やさないため）
+    return { blob: await res.blob(), crop: parseCropHeader(res.headers.get('X-Card-Image-Crop')) };
+  },
+
+  // 背景に使えそうな画像の候補。BFF が監視対象サイトを実際に開くので数十秒かかることがある。
+  async getCardImageOptions(id: string): Promise<CardImageOptions> {
+    const res = await request(`/watches/${id}/card-image/candidates`);
+    if (!res.ok) throw new Error(await errorMessage(res, '候補の取得に失敗しました'));
+    return res.json();
+  },
+
+  // 候補のサムネイル。カード背景と同じく BFF が代理で取る。
+  async getCardImageCandidateBlob(id: string, url: string): Promise<Blob | null> {
+    const res = await request(`/watches/${id}/card-image/candidate?url=${encodeURIComponent(url)}`);
+    if (!res.ok) return null;
     return res.blob();
+  },
+
+  // 背景の絵を決める（候補から選ぶ / 手元の画像を登録する / 絵なし / 自動へ戻す）
+  async saveCardImage(id: string, body: SaveCardImageRequest): Promise<void> {
+    const res = await request(`/watches/${id}/card-image`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '背景画像の変更に失敗しました'));
   },
 
   async getHistory(id: string): Promise<WatchHistoryItem[]> {

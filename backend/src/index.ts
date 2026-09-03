@@ -42,7 +42,10 @@ app.use(
     origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)),
   })
 );
-app.use(express.json());
+// 既定の 100KB では、カード背景に手元の画像を登録する要求（data: URL を JSON に載せる）が
+// 入らない。画像そのものの上限は保存側 (cardImage) が実物を見て弾くので、
+// ここは base64 で膨らむぶんを見込んだ受け皿の広さだけを決める。
+app.use(express.json({ limit: '8mb' }));
 
 // API Routes
 app.use('/api/health', healthRouter);

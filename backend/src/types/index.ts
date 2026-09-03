@@ -200,5 +200,58 @@ export interface CardImageRecord {
 }
 
 export interface CardImageStoreData {
-  images: Record<string, CardImageRecord>; // watchId -> 解決結果
+  images: Record<string, CardImageRecord>; // watchId -> 自動判定の結果
+  // watchId -> ユーザーが自分で決めた背景。自動判定より優先する。
+  // 記録が無い監視は今までどおり自動判定に任せる。
+  overrides: Record<string, CardImageOverride>;
+}
+
+// カード背景の切り抜き。元画像に対する割合 (0..1) で持つ。
+// 表示する箱（カードの幅・高さ）は端末や折り返しで変わるので、ピクセルでは持てない。
+export interface CardImageCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  // 切り抜いたときの元画像の縦横比 (naturalWidth / naturalHeight)。
+  // 表示側は箱の実寸しか知らないため、これが無いと割合を元の絵へ戻せない。
+  ratio: number;
+}
+
+// ユーザーが自分で決めた背景。自動判定より優先する。
+//  - auto:   自動判定に任せる（既定。記録そのものを消す）
+//  - none:   絵を出さない
+//  - url:    候補から選んだ、監視対象サイト上の画像
+//  - upload: 手元から登録した画像（dataDir/card-images/ に置く）
+export type CardImageMode = 'auto' | 'none' | 'url' | 'upload';
+
+export interface CardImageOverride {
+  mode: Exclude<CardImageMode, 'auto'>;
+  imageUrl?: string | null; // mode: 'url'
+  uploadFile?: string | null; // mode: 'upload'（ファイル名だけ。置き場所は BFF が決める）
+  crop?: CardImageCrop | null;
+  updatedAt: string;
+}
+
+// 背景に使えそうな画像の候補（画面の選択肢として返す）。
+// 大きさや拾い方は並び順に織り込んであるので、画面へは渡さない。
+export interface CardImageChoice {
+  url: string;
+  current: boolean; // いま実際に敷いている絵か
+}
+
+export interface CardImageOptionsResponse {
+  mode: CardImageMode;
+  crop: CardImageCrop | null;
+  candidates: CardImageChoice[];
+  // 監視対象サイトをブラウザで開けず、OGP しか見られなかった
+  browserFailed: boolean;
+}
+
+// 画面から届く「この絵にする」の指定
+export interface SaveCardImageDto {
+  mode: CardImageMode;
+  url?: string; // mode: 'url'
+  dataUrl?: string; // mode: 'upload'（data: URL 形式の画像）
+  crop?: CardImageCrop | null;
 }

@@ -42,6 +42,7 @@ describe('WatchCard', () => {
         onDelete={vi.fn()}
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
+        onChangeImage={vi.fn()}
         {...handlers}
       />
     );
@@ -135,6 +136,7 @@ describe('WatchCard', () => {
         onDelete={vi.fn()}
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
+        onChangeImage={vi.fn()}
       />
     );
 

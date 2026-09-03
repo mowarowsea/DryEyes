@@ -116,6 +116,7 @@ describe('一覧の並び', () => {
         onDelete={noop}
         onCopyTo={() => undefined}
         onReviewRedirect={() => undefined}
+        onChangeImage={() => undefined}
         onOpenCreateModal={() => undefined}
       />
     );
@@ -146,6 +147,7 @@ describe('一覧の並び', () => {
         onDelete={noop}
         onCopyTo={() => undefined}
         onReviewRedirect={() => undefined}
+        onChangeImage={() => undefined}
         onOpenCreateModal={() => undefined}
       />
     );

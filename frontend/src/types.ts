@@ -134,3 +134,44 @@ export interface RedirectProposal {
   selectorFound: boolean | null; // 遷移先で監視中の要素が見つかったか（null は未確認）
   toTitle: string | null; // 遷移先ページのタイトル
 }
+
+// ---------------------------------------------------------------------------
+// カード背景画像（一覧で監視を見分けるための絵）
+// ---------------------------------------------------------------------------
+
+// 切り抜きの指定。位置と大きさは元画像に対する割合 (0..1) で持つ。
+// カードの箱は端末やエラー帯の有無で大きさが変わるため、ピクセルでは決め打てない。
+export interface CardImageCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  // 切り抜いたときの元画像の縦横比 (naturalWidth / naturalHeight)。
+  // 表示側は箱の実寸しか知らないので、これが無いと割合を元の絵へ戻せない。
+  ratio: number;
+}
+
+// 背景の決め方。auto は自動判定（既定）、none は絵を出さない。
+export type CardImageMode = 'auto' | 'none' | 'url' | 'upload';
+
+// 背景に使えそうだと BFF が拾ってきた候補（並び順が確からしさの順）
+export interface CardImageChoice {
+  url: string;
+  current: boolean; // いま実際に敷いている絵か
+}
+
+export interface CardImageOptions {
+  mode: CardImageMode;
+  crop: CardImageCrop | null;
+  candidates: CardImageChoice[];
+  // 監視対象サイトをブラウザで開けず、OGP しか見られなかった
+  browserFailed: boolean;
+}
+
+// 「この絵にする」の指定
+export interface SaveCardImageRequest {
+  mode: CardImageMode;
+  url?: string; // mode: 'url'
+  dataUrl?: string; // mode: 'upload'
+  crop?: CardImageCrop | null;
+}

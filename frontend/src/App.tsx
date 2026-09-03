@@ -8,6 +8,7 @@ import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
 import { CopyWatchModal } from './components/CopyWatchModal';
 import { DiffModal } from './components/DiffModal';
 import { RedirectReviewModal } from './components/RedirectReviewModal';
+import { CardImageModal } from './components/CardImageModal';
 import { LoginScreen } from './components/LoginScreen';
 import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
@@ -39,6 +40,8 @@ export default function App() {
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
   // 監視先が別 URL へ転送されていたときの確認モーダル
   const [redirectTargetWatch, setRedirectTargetWatch] = useState<WatchModel | null>(null);
+  // カード背景の絵を選び直すモーダル
+  const [cardImageTargetWatch, setCardImageTargetWatch] = useState<WatchModel | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [watchesLoaded, setWatchesLoaded] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getStoredTheme());
@@ -274,6 +277,12 @@ export default function App() {
     showToast(`「${result.title}」を ${result.username} 用にコピーしました`);
   };
 
+  // 背景の絵を選び直した。覚えている絵を捨てると、出ているカードが新しい絵を取りに行く。
+  const handleCardImageSaved = (id: string, message: string) => {
+    forgetCardImage(id);
+    showToast(message);
+  };
+
   // 検知した移転を承認して、監視先を転送先の URL へ差し替える
   const handleAcceptRedirect = async (id: string, always: boolean) => {
     await api.acceptRedirect(id, always);
@@ -320,6 +329,7 @@ export default function App() {
           onEdit={(w) => setEditTargetWatch(w)}
           onCopyTo={(w) => setCopyTargetWatch(w)}
           onReviewRedirect={(w) => setRedirectTargetWatch(w)}
+          onChangeImage={(w) => setCardImageTargetWatch(w)}
           onDelete={handleDeleteWatch}
           onOpenCreateModal={() => setIsCreateModalOpen(true)}
         />
@@ -362,6 +372,13 @@ export default function App() {
         onClose={() => setRedirectTargetWatch(null)}
         onAccept={handleAcceptRedirect}
         onDismiss={handleDismissRedirect}
+      />
+
+      <CardImageModal
+        watch={cardImageTargetWatch}
+        isOpen={!!cardImageTargetWatch}
+        onClose={() => setCardImageTargetWatch(null)}
+        onSaved={handleCardImageSaved}
       />
 
       <DiffModal

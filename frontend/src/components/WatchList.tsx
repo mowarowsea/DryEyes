@@ -23,6 +23,8 @@ interface WatchListProps {
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
   onReviewRedirect: (watch: WatchModel) => void;
+  // 背景に敷く絵を選び直す
+  onChangeImage: (watch: WatchModel) => void;
   onOpenCreateModal: () => void;
 }
 
@@ -39,6 +41,7 @@ export const WatchList: React.FC<WatchListProps> = ({
   onDelete,
   onCopyTo,
   onReviewRedirect,
+  onChangeImage,
   onOpenCreateModal,
 }) => {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
@@ -137,6 +140,7 @@ export const WatchList: React.FC<WatchListProps> = ({
               onDelete={onDelete}
               onCopyTo={onCopyTo}
               onReviewRedirect={onReviewRedirect}
+              onChangeImage={onChangeImage}
             />
           ))}
         </div>
