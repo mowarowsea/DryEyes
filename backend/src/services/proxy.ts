@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { renderPageHtml, RENDER_USER_AGENT } from './browserRender.js';
 import { attributeOf, escapeHtml } from './htmlMeta.js';
+import { ELEMENT_PATH_HELPERS } from './elementPath.js';
 
 // 注入する Element Inspector スクリプト。
 // <head> の先頭に置いて、ページ自身のスクリプトより先にリスナーを登録する。
@@ -187,77 +188,7 @@ const INSPECTOR_SCRIPT = `
     };
   } catch (e) {}
 
-  // XPath 計算ヘルパー（厳密な単一要素）
-  function getExactXPath(element) {
-    if (element.id !== '') {
-      return '//*[@id="' + element.id + '"]';
-    }
-    if (element === document.body) {
-      return '/html/body';
-    }
-
-    let ix = 0;
-    const siblings = element.parentNode ? element.parentNode.childNodes : [];
-    for (let i = 0; i < siblings.length; i++) {
-      const sibling = siblings[i];
-      if (sibling === element) {
-        const parentPath = element.parentNode ? getExactXPath(element.parentNode) : '';
-        return parentPath + '/' + element.tagName.toLowerCase() + '[' + (ix + 1) + ']';
-      }
-      if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
-        ix++;
-      }
-    }
-    return '';
-  }
-
-  // 類似要素XPath計算ヘルパー（リストやグリッド内の同種要素をまとめる）
-  function getSimilarXPath(element, exactPath) {
-    // 1. クラス名による汎用XPath
-    if (element.className && typeof element.className === 'string') {
-      const validClass = element.className.trim().split(/\\s+/).find(c => c && !c.startsWith('dryeyes-'));
-      if (validClass) {
-        const classXPath = '//' + element.tagName.toLowerCase() + '[contains(@class, "' + validClass + '")]';
-        try {
-          const res = document.evaluate(classXPath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-          if (res.snapshotLength > 1) {
-            return { xpath: classXPath, count: res.snapshotLength };
-          }
-        } catch (e) {}
-      }
-    }
-
-    // 2. 末尾付近の [1] [2] などのインデックスを除去して親コンテナからの汎用パターンを生成
-    // 例: //*[@id="..."]/div/div/a[1]/p[1] -> //*[@id="..."]/div/div//p または a/p
-    let generalized = exactPath.replace(/\\[\\d+\\]/g, (match, offset, string) => {
-      // id指定部分以外のインデックスを外す
-      return '';
-    });
-
-    if (generalized.startsWith('//*[@id=') || generalized.startsWith('/html/body')) {
-      try {
-        const res = document.evaluate(generalized, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-        if (res.snapshotLength > 1) {
-          return { xpath: generalized, count: res.snapshotLength };
-        }
-      } catch (e) {}
-    }
-
-    // 3. 親コンテナからの相対ワイルドカード
-    // 末尾1〜2階層のインデックスを外す
-    let strippedTail = exactPath.replace(/\\[\\d+\\](\\/[a-z0-9]+(\\[\\d+\\])?)$/i, '$1').replace(/\\[\\d+\\]$/i, '');
-    if (strippedTail !== exactPath) {
-      try {
-        const res = document.evaluate(strippedTail, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-        if (res.snapshotLength > 1) {
-          return { xpath: strippedTail, count: res.snapshotLength };
-        }
-      } catch (e) {}
-    }
-
-    return { xpath: exactPath, count: 1 };
-  }
-
+${ELEMENT_PATH_HELPERS}
   // CSS Selector 計算ヘルパー
   function getCssSelector(el) {
     if (el.id) return '#' + el.id;
@@ -288,20 +219,11 @@ const INSPECTOR_SCRIPT = `
 
   // 類似要素のテキスト一覧取得ヘルパー
   function getSimilarTexts(xpath) {
-    if (!xpath) return [];
     const texts = [];
-    try {
-      const res = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-      for (let i = 0; i < res.snapshotLength; i++) {
-        const node = res.snapshotItem(i);
-        if (node && node.nodeType === 1) {
-          const t = (node.innerText || node.textContent || '').trim().replace(/\\s+/g, ' ');
-          if (t) {
-            texts.push(t.substring(0, 100));
-          }
-        }
-      }
-    } catch (e) {}
+    evaluateNodes(xpath).forEach(function(node) {
+      const t = (node.innerText || node.textContent || '').trim().replace(/\\s+/g, ' ');
+      if (t) texts.push(t.substring(0, 100));
+    });
     return texts;
   }
 
