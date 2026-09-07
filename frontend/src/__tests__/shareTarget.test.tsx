@@ -35,6 +35,7 @@ beforeEach(() => {
   vi.spyOn(api, 'getHealth').mockRejectedValue(new Error('health は本テストでは使わない'));
   vi.spyOn(api, 'getWatches').mockResolvedValue([]);
   vi.spyOn(api, 'getPageInfo').mockResolvedValue({ title: 'ぐらんぶる', url: 'https://example.com/manga' });
+  vi.spyOn(api, 'findDuplicateWatch').mockResolvedValue(null);
 });
 
 afterEach(() => {

@@ -11,7 +11,13 @@ import {
   pruneViewStates,
 } from '../services/viewState.js';
 import { diffSnapshots, splitSnapshotLines } from '../services/diff.js';
-import { clearRedirectState, getPendingRedirect, pruneRedirectState } from '../services/redirectReview.js';
+import {
+  clearRedirectState,
+  getPendingRedirect,
+  isAllowedRedirect,
+  pruneRedirectState,
+} from '../services/redirectReview.js';
+import { findDuplicateWatch } from '../services/duplicate.js';
 import { acceptPendingRedirect, dismissPendingRedirect } from '../services/redirectScan.js';
 import {
   clearCardImage,
@@ -79,6 +85,29 @@ watchesRouter.get('/', async (req, res) => {
     );
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch watches', message: err.message });
+  }
+});
+
+// 登録前の重複確認。同じページ（表記ゆれや承認済みの移転を含む）を見ている自分の監視を返す。
+// パスが固定の /lookup なので、監視 ID を受ける /:id より前に置く。
+watchesRouter.get('/lookup', async (req, res) => {
+  const url = String(req.query.url || '').trim();
+  if (!url) return res.status(400).json({ error: 'url parameter is required' });
+
+  const userId = req.user!.id;
+  try {
+    const watches = (await changedetectionClient.listWatches()).filter((w) => isOwnedBy(w.id, userId));
+    const match = findDuplicateWatch(url, watches, {
+      pendingRedirectUrlOf: (watchId) => getPendingRedirect(watchId)?.toUrl ?? null,
+      isAllowedRedirect: (from, to) => isAllowedRedirect(userId, from, to),
+    });
+    res.json({
+      duplicate: match
+        ? { id: match.watch.id, title: match.watch.title, url: match.watch.url, reason: match.reason }
+        : null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to look up watches', message: err.message });
   }
 });
 

@@ -42,6 +42,16 @@ export interface WatchHistoryItem {
   snapshotId: string;
 }
 
+// 登録前の重複確認で見つかった、同じページを見ている監視。
+//  - same:     同じ URL（表記ゆれを除く）
+//  - redirect: 別ドメインだが、移転で同じページになっている
+export interface DuplicateWatch {
+  id: string;
+  title: string;
+  url: string;
+  reason: 'same' | 'redirect';
+}
+
 // コピー先ユーザーの選択肢
 export interface PublicUser {
   id: string;

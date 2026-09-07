@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, ArrowRight, FileText, MousePointerClick, Bell, ClipboardPaste } from 'lucide-react';
-import { CreateWatchDto } from '../types';
+import {
+  Clock,
+  ArrowRight,
+  FileText,
+  MousePointerClick,
+  Bell,
+  ClipboardPaste,
+  Eye,
+} from 'lucide-react';
+import { CreateWatchDto, DuplicateWatch } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
 import { Modal } from './Modal';
 import { DEFAULT_INTERVAL_MINUTES, IntervalPicker, intervalLabel } from './IntervalPicker';
@@ -16,7 +24,18 @@ interface CreateWatchModalProps {
   userTopic: string;
   /** 共有シートなどから渡された URL。開いた時点で入力欄に入れておく。 */
   initialUrl?: string | null;
+  /** 同じページを見ている監視が既にあったとき、その監視を開く（登録モーダルは閉じる） */
+  onOpenExisting?: (watchId: string) => void;
 }
+
+// 移転で結ばれた重複は、どのドメインで登録済みかが分かると納得しやすい
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 
 // 登録は 2 ステップ。
 //   Step 1: URL の入力
@@ -28,8 +47,11 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   onSubmit,
   userTopic,
   initialUrl,
+  onOpenExisting,
 }) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  // 同じページを見ている監視が既にあるときに、Step 1 に出す案内
+  const [duplicate, setDuplicate] = useState<DuplicateWatch | null>(null);
 
   // フォームデータ
   const [url, setUrl] = useState('');
@@ -65,22 +87,40 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     setIsPickerOpen(false);
     setUrl('');
     setTitle('');
-    setIntervalMinutes(60);
+    setIntervalMinutes(DEFAULT_INTERVAL_MINUTES);
     setIncludeFilters('');
     setSubtractedFilters('');
     setNotificationTopic('');
     setPickerRenderMode(undefined);
+    setDuplicate(null);
     setError(null);
     onClose();
   };
 
-  // Step 1 → Step 2。ページの <title> を取ってから要素ピッカーを開く。
-  const proceedToPicker = async (urlOverride?: string) => {
+  // Step 1 → Step 2。同じページの監視が無いか確かめ、ページの <title> を取ってから要素ピッカーを開く。
+  // 重複が見つかったら Step 1 に留まって知らせる。それでも登録したいときは skipDuplicateCheck で通す。
+  const proceedToPicker = async (
+    urlOverride?: string,
+    options: { skipDuplicateCheck?: boolean } = {}
+  ) => {
     const target = (urlOverride ?? url).trim();
     if (!target) {
       setError('URLを入力してください');
       return;
     }
+
+    if (!options.skipDuplicateCheck) {
+      setLoadingInfo(true);
+      setError(null);
+      // 確認に失敗しても登録は止めない（重複の案内が出ないだけ）
+      const found = await api.findDuplicateWatch(target).catch(() => null);
+      setLoadingInfo(false);
+      if (found) {
+        setDuplicate(found);
+        return;
+      }
+    }
+    setDuplicate(null);
 
     try {
       setLoadingInfo(true);
@@ -114,6 +154,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     // 「記事タイトル https://…」のようにテキストが混ざっていても URL だけ拾う
     const match = text.match(/https?:\/\/\S+/i);
     setError(null);
+    setDuplicate(null);
     setUrl(match ? match[0] : text);
   };
 
@@ -264,7 +305,11 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
                 spellCheck={false}
                 placeholder="https://example.com/comics/123"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  // URL を直したら、前の URL についての案内は当てはまらない
+                  setDuplicate(null);
+                }}
                 className={`${largeInputClass} flex-1 min-w-0`}
               />
               {canReadClipboard() && (
@@ -279,12 +324,58 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
                 </button>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
-              {initialUrl
-                ? '共有されたURLを読み込みました。続けて要素の選択に進みます。'
-                : 'スマホのブラウザから「共有 → DryEyes」でもここに入ります。'}
-            </p>
+            {!duplicate && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
+                {initialUrl
+                  ? '共有されたURLを読み込みました。続けて要素の選択に進みます。'
+                  : 'スマホのブラウザから「共有 → DryEyes」でもここに入ります。'}
+              </p>
+            )}
           </div>
+
+          {/* 同じページの監視が既にある。登録は止めないが、気づかずに 2 つ並ぶのは防ぐ。 */}
+          {duplicate && (
+            <div
+              role="status"
+              className="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl text-xs text-amber-900 dark:text-amber-100 space-y-2.5"
+            >
+              <p className="flex items-start gap-1.5 leading-relaxed">
+                <Eye className="w-4 h-4 flex-shrink-0 mt-px text-amber-600 dark:text-amber-300" />
+                <span>
+                  このページは「<strong className="font-semibold">{duplicate.title}</strong>」として
+                  すでに監視しています。
+                  {duplicate.reason === 'redirect' && (
+                    <>
+                      <br />
+                      登録済みの {hostOf(duplicate.url)} と、移転で同じページになっています。
+                    </>
+                  )}
+                </span>
+              </p>
+              <div className="flex items-stretch gap-2">
+                {onOpenExisting && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = duplicate.id;
+                      handleClose();
+                      onOpenExisting(id);
+                    }}
+                    className="flex-1 px-3 py-2.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 active:scale-95 transition rounded-xl shadow-sm"
+                  >
+                    登録済みの監視を見る
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void proceedToPicker(undefined, { skipDuplicateCheck: true })}
+                  className="flex-1 px-3 py-2.5 text-xs font-medium text-amber-800 dark:text-amber-100 bg-white dark:bg-slate-800 border border-amber-200 dark:border-amber-500/30 hover:bg-amber-100 dark:hover:bg-amber-500/20 active:scale-95 transition rounded-xl"
+                >
+                  それでも登録する
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="pt-2 space-y-2">
             <button

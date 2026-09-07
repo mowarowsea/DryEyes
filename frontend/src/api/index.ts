@@ -12,6 +12,7 @@ import {
   SaveCardImageRequest,
   RedirectDecisionOptions,
   RedirectDecisionResult,
+  DuplicateWatch,
 } from '../types';
 import { parseCropHeader } from '../cardImage';
 
@@ -142,6 +143,14 @@ export const api = {
     const res = await request(`/proxy/info?url=${encodeURIComponent(url)}`);
     if (!res.ok) return { title: url, url };
     return res.json();
+  },
+
+  // 登録しようとしている URL を、すでに監視していないか（表記ゆれや承認済みの移転も含めて）
+  async findDuplicateWatch(url: string): Promise<DuplicateWatch | null> {
+    const res = await request(`/watches/lookup?url=${encodeURIComponent(url)}`);
+    if (!res.ok) throw new Error(await errorMessage(res, '重複の確認に失敗しました'));
+    const body = await res.json();
+    return body.duplicate ?? null;
   },
 
   async getWatches(): Promise<WatchModel[]> {

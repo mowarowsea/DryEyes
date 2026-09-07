@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { CreateWatchModal } from '../components/CreateWatchModal';
 import { api } from '../api';
+
+// 登録前の重複確認は、既定では「見つからない」。見つかる場合のテストで個別に差し替える。
+beforeEach(() => {
+  vi.spyOn(api, 'findDuplicateWatch').mockResolvedValue(null);
+});
 
 afterEach(() => {
   cleanup();
@@ -13,7 +18,8 @@ afterEach(() => {
 const renderModal = (
   onClose = vi.fn(),
   onSubmit = vi.fn().mockResolvedValue(undefined),
-  initialUrl: string | null = null
+  initialUrl: string | null = null,
+  onOpenExisting?: (watchId: string) => void
 ) => {
   render(
     <CreateWatchModal
@@ -22,10 +28,16 @@ const renderModal = (
       onSubmit={onSubmit}
       userTopic="dryeyes-mowa-94cf11"
       initialUrl={initialUrl}
+      onOpenExisting={onOpenExisting}
     />
   );
   return { onClose, onSubmit };
 };
+
+const typeUrl = (value: string) =>
+  fireEvent.change(screen.getByPlaceholderText('https://example.com/comics/123'), {
+    target: { value },
+  });
 
 // ピッカー内で要素がタップされた体にする
 const selectElement = (xpath: string, similarCount = 1) => {
@@ -206,5 +218,89 @@ describe('CreateWatchModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /オプション/ }));
     expect(screen.getByDisplayValue('//*[@id="ad"]')).toBeInTheDocument();
+  });
+});
+
+// 監視が増えると「これ登録したっけ」が起きる。共有シートから来たときはとくに一覧を見ないので、
+// 同じページの監視が既にあれば要素の選択へ進む前に知らせる。
+describe('登録前の重複確認', () => {
+  const existing = {
+    id: 'watch-1',
+    title: 'ぐらんぶる',
+    url: 'https://example.com/manga',
+    reason: 'same' as const,
+  };
+
+  it('warns that the page is already watched and can jump to that watch instead', async () => {
+    vi.spyOn(api, 'findDuplicateWatch').mockResolvedValue(existing);
+    const getPageInfo = vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    const onOpenExisting = vi.fn();
+    const { onClose } = renderModal(vi.fn(), vi.fn(), null, onOpenExisting);
+
+    typeUrl('https://example.com/manga');
+    fireEvent.click(screen.getByRole('button', { name: /次へ/ }));
+
+    expect(await screen.findByText(/すでに監視しています/)).toBeInTheDocument();
+    expect(screen.getByText('ぐらんぶる')).toBeInTheDocument();
+    // 要素の選択には進まない（ページも読みに行かない）
+    expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
+    expect(getPageInfo).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '登録済みの監視を見る' }));
+    expect(onOpenExisting).toHaveBeenCalledWith('watch-1');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('still lets the user register the same page on purpose', async () => {
+    const lookup = vi.spyOn(api, 'findDuplicateWatch').mockResolvedValue(existing);
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    renderModal();
+
+    typeUrl('https://example.com/manga');
+    fireEvent.click(screen.getByRole('button', { name: /次へ/ }));
+    await screen.findByText(/すでに監視しています/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'それでも登録する' }));
+
+    await waitFor(() => expect(screen.getByTitle('Page Preview')).toBeInTheDocument());
+    // 押し切ったあとに同じ確認を繰り返さない
+    expect(lookup).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the warning once the URL is edited', async () => {
+    vi.spyOn(api, 'findDuplicateWatch').mockResolvedValue(existing);
+    renderModal();
+
+    typeUrl('https://example.com/manga');
+    fireEvent.click(screen.getByRole('button', { name: /次へ/ }));
+    await screen.findByText(/すでに監視しています/);
+
+    typeUrl('https://example.com/manga-2');
+
+    expect(screen.queryByText(/すでに監視しています/)).not.toBeInTheDocument();
+  });
+
+  it('holds a shared URL at the first step when it is already watched via a moved domain', async () => {
+    vi.spyOn(api, 'findDuplicateWatch').mockResolvedValue({
+      ...existing,
+      url: 'https://old.example/manga',
+      reason: 'redirect',
+    });
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    renderModal(vi.fn(), vi.fn(), 'https://example.com/manga');
+
+    expect(await screen.findByText(/すでに監視しています/)).toBeInTheDocument();
+    // 別ドメインで登録済みのときは、どこで登録したかが分かる
+    expect(screen.getByText(/old\.example/)).toBeInTheDocument();
+    expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
   });
 });

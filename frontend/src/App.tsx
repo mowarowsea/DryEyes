@@ -359,7 +359,7 @@ export default function App() {
       {user && <AccountFab user={user} onClick={() => setIsAccountModalOpen(true)} />}
       <CreateFab onClick={() => setIsCreateModalOpen(true)} />
 
-      {/* モーダル */}
+      {/* モーダル。同じページの監視が既にあったときは、登録の代わりにその監視の変更点を開く。 */}
       <CreateWatchModal
         isOpen={isCreateModalOpen}
         initialUrl={sharedUrl}
@@ -369,6 +369,10 @@ export default function App() {
         }}
         onSubmit={handleCreateWatch}
         userTopic={userTopic}
+        onOpenExisting={(id) => {
+          const existing = watches.find((w) => w.id === id);
+          if (existing) setDiffTargetWatch(existing);
+        }}
       />
 
       <EditWatchModal
