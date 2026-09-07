@@ -16,12 +16,28 @@ import { CreateWatchDto, UpdateWatchDto, WatchModel, WatchHistoryItem } from '..
 // 添付を許可していない ntfy サーバーは 400 (attachments not allowed) を返し、通知そのものが消える。
 // そのため差分が長い監視でも本文に収まるよう、平文フォーマットにした上で diff を切り詰める。
 // (JSON 化で日本語は \uXXXX へ展開され 1 文字が 6 文字分を占めるため、上限は小さめに取る)
-const NOTIFICATION_DIFF_LIMIT = 600;
+// 文字数の上限は、Jinja が描画する時点の文字列に対して効く。その時点では各行の頭に
+// 種別のプレースマーカー（@added_PLACEMARKER_OPEN … 約 50 文字）が付いていて、
+// 送信前に "(added) " などへ置き換わって縮むので、実際に送られる本文はこれより短い。
+const NOTIFICATION_DIFF_LIMIT = 900;
+// 文字数で切る前に行数で絞る。文字数だけで切るとマーカーの途中で切れて、
+// 末尾に "@added_PLAC …" のような断片が残ることがある。
+const NOTIFICATION_DIFF_LINES = 10;
 export const NOTIFICATION_FORMAT = 'text';
 export const NOTIFICATION_TITLE = '[DryEyes] {{ watch_title }} が更新されました';
+// 本文は「増えた行」だけを先頭に載せる。一覧ものは新しい項目が増えるのと同時に
+// 古い項目が末尾から押し出されるので、差分をそのまま載せると (removed) の行に
+// 増えた行が埋もれてしまう。増えた行が無い変更（消えただけ・書き換わっただけ）は
+// 従来どおり差分全体を載せて、何が起きたか分かるようにする。
+// diff_added は changedetection.io 0.55 系のトークンで、書き換わった行は (changed)/(into) の組で含まれる。
+// 行数で切ったときは truncate が省略を付けてくれないので、行数を見て自分で付ける。
+// URL は末尾に置く。通知を畳んだ表示では先頭の 1〜2 行しか見えないため。
 export const NOTIFICATION_BODY =
-  '{{ watch_url }} で変更を検知しました。\nDiff:\n' +
-  `{{ diff | truncate(${NOTIFICATION_DIFF_LIMIT}, True, ' …(省略)') }}`;
+  `{% set shown = diff_added(lines=${NOTIFICATION_DIFF_LINES}) or diff(lines=${NOTIFICATION_DIFF_LINES}) %}` +
+  '{% set full = diff_added or diff %}' +
+  `{{ shown | truncate(${NOTIFICATION_DIFF_LIMIT}, True, ' …(省略)', 0) }}` +
+  `{% if shown|length <= ${NOTIFICATION_DIFF_LIMIT} and full.splitlines()|length > ${NOTIFICATION_DIFF_LINES} %} …(省略){% endif %}\n` +
+  '{{ watch_url }}';
 
 // 監視のチェック間隔の既定値。画面側の既定（3時間）と揃える。
 export const DEFAULT_CHECK_INTERVAL_MINUTES = 180;

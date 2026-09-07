@@ -236,6 +236,9 @@ describe('ChangedetectionClient', () => {
     // 差分をそのまま載せると ntfy 側で弾かれるため、本文は必ず切り詰めた平文にする
     expect(NOTIFICATION_BODY).toContain('truncate(');
     expect(NOTIFICATION_FORMAT).toBe('text');
+    // 本文は増えた行が主役。増えた行が無い変更のときだけ差分全体に落とす
+    expect(NOTIFICATION_BODY).toMatch(/diff_added\(lines=\d+\) or diff\(lines=\d+\)/);
+    expect(NOTIFICATION_BODY.indexOf('diff_added')).toBeLessThan(NOTIFICATION_BODY.indexOf('watch_url'));
 
     expect(created.id).toBe('new-uuid');
   });
