@@ -23,6 +23,9 @@ export const NOTIFICATION_BODY =
   '{{ watch_url }} で変更を検知しました。\nDiff:\n' +
   `{{ diff | truncate(${NOTIFICATION_DIFF_LIMIT}, True, ' …(省略)') }}`;
 
+// 監視のチェック間隔の既定値。画面側の既定（3時間）と揃える。
+export const DEFAULT_CHECK_INTERVAL_MINUTES = 180;
+
 // 一覧表示のために監視ごとの詳細を引くときの並列数
 const DETAIL_CONCURRENCY = 6;
 
@@ -205,6 +208,10 @@ export class ChangedetectionClient {
       payload.time_between_check = {
         minutes: dto.checkIntervalMinutes,
       };
+      // time_between_check_use_default が立っている限り、changedetection.io は
+      // 監視ごとの間隔を見ずに全体設定の既定値でチェックする。
+      // （既定は true なので、間隔を指定したときは必ず降ろす必要がある）
+      payload.time_between_check_use_default = false;
     }
 
     // API スキーマは配列を要求する（改行連結した文字列だと 'is not of type array' で 400 になる）
@@ -260,6 +267,7 @@ export class ChangedetectionClient {
       payload.time_between_check = {
         minutes: dto.checkIntervalMinutes,
       };
+      payload.time_between_check_use_default = false;
     }
 
     if (dto.includeFilters !== undefined) {
@@ -509,12 +517,12 @@ export class ChangedetectionClient {
       if (match) topic = match[1];
     }
 
-    let intervalMinutes = 10;
+    let intervalMinutes = DEFAULT_CHECK_INTERVAL_MINUTES;
     if (data.time_between_check && typeof data.time_between_check === 'object') {
       const m = data.time_between_check.minutes || 0;
       const h = (data.time_between_check.hours || 0) * 60;
       const d = (data.time_between_check.days || 0) * 1440;
-      intervalMinutes = m + h + d || 10;
+      intervalMinutes = m + h + d || DEFAULT_CHECK_INTERVAL_MINUTES;
     }
 
     return {

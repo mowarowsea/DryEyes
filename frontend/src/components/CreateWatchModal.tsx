@@ -3,7 +3,7 @@ import { Clock, ArrowRight, FileText, MousePointerClick, Bell, ClipboardPaste } 
 import { CreateWatchDto } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
 import { Modal } from './Modal';
-import { IntervalPicker } from './IntervalPicker';
+import { DEFAULT_INTERVAL_MINUTES, IntervalPicker } from './IntervalPicker';
 import { api } from '../api';
 import { canReadClipboard, readTextFromClipboard } from '../clipboard';
 import { cancelButtonClass, largeInputClass, monoInputClass, submitButtonClass } from '../ui';
@@ -34,7 +34,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   // フォームデータ
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
-  const [intervalMinutes, setIntervalMinutes] = useState(60); // デフォルト1時間
+  const [intervalMinutes, setIntervalMinutes] = useState(DEFAULT_INTERVAL_MINUTES);
   const [includeFilters, setIncludeFilters] = useState('');
   const [subtractedFilters, setSubtractedFilters] = useState('');
   // 空なら自分専用トピックへまとめて通知する（通常はこれでよい）

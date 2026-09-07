@@ -126,7 +126,7 @@ describe('CreateWatchModal', () => {
       expect.objectContaining({
         url: 'https://example.com/manga',
         title: 'ぐらんぶる',
-        checkIntervalMinutes: 60,
+        checkIntervalMinutes: 180,
         includeFilters: ['//*[@id="list"]'],
       })
     );

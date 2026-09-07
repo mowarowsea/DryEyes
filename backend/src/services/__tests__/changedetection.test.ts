@@ -182,6 +182,14 @@ describe('ChangedetectionClient', () => {
     const after = await client.listWatches();
 
     expect(after[0].checkIntervalMinutes).toBe(60);
+    // 間隔を送るだけでは効かず、全体設定の既定を使うフラグを降ろす必要がある
+    expect(mockAxiosInstance.put).toHaveBeenCalledWith(
+      '/api/v1/watch/uuid-1',
+      expect.objectContaining({
+        time_between_check: { minutes: 60 },
+        time_between_check_use_default: false,
+      })
+    );
   });
 
   it('should format creation payload with ntfy notification and interval', async () => {
@@ -216,6 +224,8 @@ describe('ChangedetectionClient', () => {
       notification_body: NOTIFICATION_BODY,
       notification_format: NOTIFICATION_FORMAT,
       time_between_check: { minutes: 30 },
+      // これを降ろさないと changedetection.io は全体設定の既定間隔でチェックしてしまう
+      time_between_check_use_default: false,
       include_filters: ['.main-content'],
       // 除外は subtractive_selectors。subtracted_filters では検知処理から参照されない。
       subtractive_selectors: ['.footer'],

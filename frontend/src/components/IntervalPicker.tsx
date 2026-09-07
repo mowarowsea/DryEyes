@@ -9,9 +9,14 @@ export const INTERVAL_PRESETS: { label: string; value: number }[] = [
   { label: '10分', value: 10 },
   { label: '30分', value: 30 },
   { label: '1時間', value: 60 },
+  { label: '3時間', value: 180 },
   { label: '6時間', value: 360 },
   { label: '24時間', value: 1440 },
 ];
+
+// 未指定のときに使う間隔。監視対象はどれも数時間おきに見れば十分なので、
+// 短い間隔は明示的に選んだときだけにする。
+export const DEFAULT_INTERVAL_MINUTES = 180;
 
 interface IntervalPickerProps {
   value: number;
@@ -19,7 +24,7 @@ interface IntervalPickerProps {
 }
 
 export const IntervalPicker: React.FC<IntervalPickerProps> = ({ value, onChange }) => (
-  <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+  <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
     {INTERVAL_PRESETS.map((preset) => (
       <button
         key={preset.value}

@@ -13,7 +13,7 @@ import {
 import { WatchModel } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
 import { Modal } from './Modal';
-import { IntervalSelect } from './IntervalPicker';
+import { DEFAULT_INTERVAL_MINUTES, IntervalSelect } from './IntervalPicker';
 import { cancelButtonClass, inputClass, monoInputClass, submitButtonClass } from '../ui';
 
 /** 保存時にそのまま再チェックまで走らせるかどうか */
@@ -50,7 +50,7 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
 }) => {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
-  const [intervalMinutes, setIntervalMinutes] = useState(60);
+  const [intervalMinutes, setIntervalMinutes] = useState(DEFAULT_INTERVAL_MINUTES);
   const [includeFilters, setIncludeFilters] = useState('');
   const [subtractedFilters, setSubtractedFilters] = useState('');
   const [topicSuffix, setTopicSuffix] = useState('');
@@ -65,7 +65,7 @@ export const EditWatchModal: React.FC<EditWatchModalProps> = ({
     if (!isOpen || !watch) return;
     setUrl(watch.url);
     setTitle(watch.title);
-    setIntervalMinutes(watch.checkIntervalMinutes || 60);
+    setIntervalMinutes(watch.checkIntervalMinutes || DEFAULT_INTERVAL_MINUTES);
     setIncludeFilters(watch.includeFilters.join('\n'));
     setSubtractedFilters(watch.subtractedFilters.join('\n'));
     setTopicSuffix(suffixOf(watch.notificationTopic || '', userTopic));
