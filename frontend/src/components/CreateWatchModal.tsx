@@ -3,7 +3,7 @@ import { Clock, ArrowRight, FileText, MousePointerClick, Bell, ClipboardPaste } 
 import { CreateWatchDto } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
 import { Modal } from './Modal';
-import { DEFAULT_INTERVAL_MINUTES, IntervalPicker } from './IntervalPicker';
+import { DEFAULT_INTERVAL_MINUTES, IntervalPicker, intervalLabel } from './IntervalPicker';
 import { api } from '../api';
 import { canReadClipboard, readTextFromClipboard } from '../clipboard';
 import { cancelButtonClass, largeInputClass, monoInputClass, submitButtonClass } from '../ui';
@@ -178,7 +178,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
       <div>
         <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 mb-1.5 flex items-center">
           <Clock className="w-3.5 h-3.5 mr-1 text-slate-400 dark:text-slate-500" />
-          チェック間隔（デフォルト: 1時間）
+          チェック間隔（デフォルト: {intervalLabel(DEFAULT_INTERVAL_MINUTES)}）
         </label>
         <IntervalPicker value={intervalMinutes} onChange={setIntervalMinutes} />
       </div>

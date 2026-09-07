@@ -18,6 +18,10 @@ export const INTERVAL_PRESETS: { label: string; value: number }[] = [
 // 短い間隔は明示的に選んだときだけにする。
 export const DEFAULT_INTERVAL_MINUTES = 180;
 
+// 「デフォルト: 1時間」のような案内文がプリセットや既定値とずれないよう、表示名はここから引く
+export const intervalLabel = (minutes: number): string =>
+  INTERVAL_PRESETS.find((preset) => preset.value === minutes)?.label || `${minutes}分`;
+
 interface IntervalPickerProps {
   value: number;
   onChange: (minutes: number) => void;
