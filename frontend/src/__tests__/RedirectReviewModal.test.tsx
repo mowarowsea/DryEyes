@@ -58,6 +58,9 @@ const renderModal = (
   return { onAccept, onDismiss };
 };
 
+// 「監視先を変更」ボタン。まとめて処理するときは件数が付く。
+const acceptButton = () => screen.getByRole('button', { name: /監視先を変更/ });
+
 describe('RedirectReviewModal', () => {
   it('shows the destination host on its own so a domain swap cannot be missed', () => {
     renderModal();
@@ -98,18 +101,24 @@ describe('RedirectReviewModal', () => {
   it('follows the redirect only for this time by default', async () => {
     const { onAccept } = renderModal();
 
-    fireEvent.click(screen.getByText('監視先を変更'));
+    fireEvent.click(acceptButton());
 
-    await waitFor(() => expect(onAccept).toHaveBeenCalledWith('watch-1', false));
+    // 画面に「ほかに N 件」と出ていないなら、答えはこの 1 件にだけ効かせる。
+    // 一覧の取り直しで同じ転送が増えていても、見せていないものを巻き込まない。
+    await waitFor(() =>
+      expect(onAccept).toHaveBeenCalledWith('watch-1', { always: false, onlyThis: true })
+    );
   });
 
   it('remembers the decision when asked to stop asking', async () => {
     const { onAccept } = renderModal();
 
-    fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByText('監視先を変更'));
+    fireEvent.click(screen.getByLabelText(/この転送は今後たずねない/));
+    fireEvent.click(acceptButton());
 
-    await waitFor(() => expect(onAccept).toHaveBeenCalledWith('watch-1', true));
+    await waitFor(() =>
+      expect(onAccept).toHaveBeenCalledWith('watch-1', { always: true, onlyThis: true })
+    );
   });
 
   it('keeps the original URL when the move is declined', async () => {
@@ -117,8 +126,49 @@ describe('RedirectReviewModal', () => {
 
     fireEvent.click(screen.getByText('変更しない'));
 
-    await waitFor(() => expect(onDismiss).toHaveBeenCalledWith('watch-1', false));
+    await waitFor(() =>
+      expect(onDismiss).toHaveBeenCalledWith('watch-1', { always: false, onlyThis: true })
+    );
     expect(onAccept).not.toHaveBeenCalled();
+  });
+
+  it('does not mention other watches when this is the only one', () => {
+    renderModal();
+
+    expect(screen.queryByText(/まとめて処理します/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('この監視だけを処理する')).not.toBeInTheDocument();
+    expect(acceptButton()).toHaveTextContent('監視先を変更');
+    expect(acceptButton()).not.toHaveTextContent('件');
+  });
+
+  it('answers for every watch of the same move by default', async () => {
+    // サイト丸ごとの移転で 1 件ずつ答えさせない。何件に効くかは押す前に分かるようにする。
+    const { onAccept } = renderModal({}, { similarCount: 84 });
+
+    expect(screen.getByText(/ほかに 84 件あります。まとめて処理します/)).toBeInTheDocument();
+    expect(acceptButton()).toHaveTextContent('85件の監視先を変更');
+
+    fireEvent.click(acceptButton());
+
+    await waitFor(() =>
+      expect(onAccept).toHaveBeenCalledWith('watch-1', { always: false, onlyThis: false })
+    );
+  });
+
+  it('can be narrowed down to this watch alone', async () => {
+    const { onDismiss } = renderModal({}, { similarCount: 84 });
+
+    fireEvent.click(screen.getByLabelText('この監視だけを処理する'));
+
+    // 絞ったら、ボタンも 1 件分の言い方に戻る
+    expect(acceptButton()).toHaveTextContent('監視先を変更');
+    expect(acceptButton()).not.toHaveTextContent('件');
+
+    fireEvent.click(screen.getByText('変更しない'));
+
+    await waitFor(() =>
+      expect(onDismiss).toHaveBeenCalledWith('watch-1', { always: false, onlyThis: true })
+    );
   });
 
   it('renders nothing when there is no proposal to review', () => {

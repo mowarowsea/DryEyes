@@ -1,20 +1,45 @@
 import { JsonStore } from './store.js';
 import { baseHost } from './urlSafety.js';
-import { RedirectDecisions, RedirectProposal, RedirectStoreData } from '../types/index.js';
+import {
+  RedirectDecisions,
+  RedirectHostPair,
+  RedirectProposal,
+  RedirectStoreData,
+} from '../types/index.js';
 
 // リダイレクトの「提案」と、それに対するユーザーの判断を持つ。
 //
 // 監視先を勝手に書き換えると、一時的なメンテページやパーキングページを掴んだまま
 // 元の URL を失う。そこで検知した移転はいったんここに積み、承認されたときだけ反映する。
-// 一方で、行ったり来たりするミラーサイトのたびに聞かれても困るので、
-// 一度承認／却下したホストは覚えておき、次からは黙って処理する。
+//
+// 判断は「転送元ホスト → 転送先ホスト」の組で、ユーザーごとに覚える。
+// サイト丸ごとの移転（example.com → example.new）では、そのユーザーの監視が何十件も
+// 同じ組で引っかかる。監視 1 件ずつ覚えていたのでは、同じ答えを何十回も聞くことになる。
+// 一方でユーザーをまたいでは共有しない。別ドメインへ付いて行くかは、その監視の持ち主が決めること。
 
 const store = new JsonStore<RedirectStoreData>('watch-redirects.json', {
   pending: {},
   decisions: {},
 });
 
-const EMPTY_DECISIONS: RedirectDecisions = { allowedHosts: [], deniedHosts: [] };
+const EMPTY_DECISIONS: RedirectDecisions = { allowed: [], denied: [] };
+
+// 以前は監視 1 件ごとに行き先ホストだけを覚えていた（allowedHosts / deniedHosts）。
+// 転送元が残っていないので組へは直せず、読み込み時に捨てる（次に検知したら聞き直す）。
+function dropLegacyDecisions(): void {
+  const legacy = Object.entries(store.get().decisions).filter(
+    ([, d]) => !Array.isArray((d as any)?.allowed) || !Array.isArray((d as any)?.denied)
+  );
+  if (legacy.length === 0) return;
+  store.update((data) => {
+    for (const [key] of legacy) delete data.decisions[key];
+  });
+}
+dropLegacyDecisions();
+
+// ---------------------------------------------------------------------------
+// 確認待ちの提案
+// ---------------------------------------------------------------------------
 
 export function getPendingRedirect(watchId: string): RedirectProposal | null {
   return store.get().pending[watchId] || null;
@@ -32,89 +57,97 @@ export function clearPendingRedirect(watchId: string): void {
   });
 }
 
-export function getDecisions(watchId: string): RedirectDecisions {
-  const saved = store.get().decisions[watchId];
+// 確認待ちをすべて返す。同じ組の提案をまとめて処理するときに使う。
+export function listPendingRedirects(): { watchId: string; proposal: RedirectProposal }[] {
+  return Object.entries(store.get().pending).map(([watchId, proposal]) => ({ watchId, proposal }));
+}
+
+// ---------------------------------------------------------------------------
+// ホストの組
+// ---------------------------------------------------------------------------
+
+// 判断はホストの組で覚える。同じ移転先へのパス違いで何度も聞かないため。
+// www の有無だけの違いは同じホストとして扱う。
+export function hostPairOf(fromUrl: string, toUrl: string): RedirectHostPair | null {
+  try {
+    return {
+      from: baseHost(new URL(fromUrl).hostname),
+      to: baseHost(new URL(toUrl).hostname),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const sameHostPair = (a: RedirectHostPair, b: RedirectHostPair): boolean =>
+  a.from === b.from && a.to === b.to;
+
+// ---------------------------------------------------------------------------
+// ユーザーごとの判断
+// ---------------------------------------------------------------------------
+
+export function getDecisions(userId: string): RedirectDecisions {
+  const saved = store.get().decisions[userId];
   if (!saved) return EMPTY_DECISIONS;
   return {
-    allowedHosts: saved.allowedHosts || [],
-    deniedHosts: saved.deniedHosts || [],
+    allowed: saved.allowed || [],
+    denied: saved.denied || [],
   };
 }
 
-// 判断はホスト単位で覚える。同じ移転先へのパス違いで何度も聞かないため。
-function recordDecision(watchId: string, url: string, allow: boolean): void {
-  let host: string;
-  try {
-    host = baseHost(new URL(url).hostname);
-  } catch {
-    return;
-  }
+function recordDecision(userId: string, fromUrl: string, toUrl: string, allow: boolean): void {
+  const pair = hostPairOf(fromUrl, toUrl);
+  if (!pair) return;
 
   store.update((data) => {
-    const current = data.decisions[watchId] || { allowedHosts: [], deniedHosts: [] };
-    const allowed = new Set(current.allowedHosts || []);
-    const denied = new Set(current.deniedHosts || []);
+    const current = data.decisions[userId] || { allowed: [], denied: [] };
+    const without = (pairs: RedirectHostPair[]) => pairs.filter((p) => !sameHostPair(p, pair));
 
     // 判断を変えたときに前の記録が残っていると、承認と却下の両方に載ってしまう
-    if (allow) {
-      allowed.add(host);
-      denied.delete(host);
-    } else {
-      denied.add(host);
-      allowed.delete(host);
-    }
-
-    data.decisions[watchId] = {
-      allowedHosts: [...allowed],
-      deniedHosts: [...denied],
-    };
+    data.decisions[userId] = allow
+      ? { allowed: [...without(current.allowed || []), pair], denied: without(current.denied || []) }
+      : { allowed: without(current.allowed || []), denied: [...without(current.denied || []), pair] };
   });
 }
 
-export function allowRedirectHost(watchId: string, url: string): void {
-  recordDecision(watchId, url, true);
+export function allowRedirect(userId: string, fromUrl: string, toUrl: string): void {
+  recordDecision(userId, fromUrl, toUrl, true);
 }
 
-export function denyRedirectHost(watchId: string, url: string): void {
-  recordDecision(watchId, url, false);
+export function denyRedirect(userId: string, fromUrl: string, toUrl: string): void {
+  recordDecision(userId, fromUrl, toUrl, false);
 }
 
-function matchesHost(hosts: string[], url: string): boolean {
-  try {
-    const host = baseHost(new URL(url).hostname);
-    return hosts.includes(host);
-  } catch {
-    return false;
-  }
+function hasPair(pairs: RedirectHostPair[], fromUrl: string, toUrl: string): boolean {
+  const pair = hostPairOf(fromUrl, toUrl);
+  return pair !== null && pairs.some((p) => sameHostPair(p, pair));
 }
 
-// 「今後もこのドメインは自動で切り替える」を選んだ行き先か
-export function isAllowedRedirect(watchId: string, url: string): boolean {
-  return matchesHost(getDecisions(watchId).allowedHosts, url);
+// 「今後たずねない」で承認された組か。そのユーザーの監視なら黙って追従してよい。
+export function isAllowedRedirect(userId: string, fromUrl: string, toUrl: string): boolean {
+  return hasPair(getDecisions(userId).allowed, fromUrl, toUrl);
 }
 
-// 「変更しない」を選んだ行き先か。二度と提案しない。
-export function isDeniedRedirect(watchId: string, url: string): boolean {
-  return matchesHost(getDecisions(watchId).deniedHosts, url);
+// 「今後たずねない」で却下された組か。そのユーザーの監視には二度と提案しない。
+export function isDeniedRedirect(userId: string, fromUrl: string, toUrl: string): boolean {
+  return hasPair(getDecisions(userId).denied, fromUrl, toUrl);
 }
 
-// 監視を削除したときに、提案と判断をまとめて捨てる
+// ---------------------------------------------------------------------------
+// 掃除
+// ---------------------------------------------------------------------------
+
+// 監視を削除したときに、その提案を捨てる。判断はユーザーのものなので残す。
 export function clearRedirectState(watchId: string): void {
-  store.update((data) => {
-    delete data.pending[watchId];
-    delete data.decisions[watchId];
-  });
+  clearPendingRedirect(watchId);
 }
 
-// changedetection.io 側で直接消された監視の記録を掃除する
+// changedetection.io 側で直接消された監視の提案を掃除する
 export function pruneRedirectState(existingWatchIds: string[]): void {
   const alive = new Set(existingWatchIds);
   store.update((data) => {
     for (const id of Object.keys(data.pending)) {
       if (!alive.has(id)) delete data.pending[id];
-    }
-    for (const id of Object.keys(data.decisions)) {
-      if (!alive.has(id)) delete data.decisions[id];
     }
   });
 }

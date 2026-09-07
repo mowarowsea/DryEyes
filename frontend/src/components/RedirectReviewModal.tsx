@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, Check, Loader2, Signpost, TriangleAlert } from 'lucide-react';
-import { WatchModel } from '../types';
+import { ArrowRight, Check, Layers, Loader2, Signpost, TriangleAlert } from 'lucide-react';
+import { RedirectDecisionOptions, WatchModel } from '../types';
 import { Modal } from './Modal';
 import { cancelButtonClass, submitButtonClass } from '../ui';
 
 interface RedirectReviewModalProps {
   watch: WatchModel | null;
   isOpen: boolean;
+  // 同じ転送で確認待ちになっている他の監視の数。1 件以上あれば、答えはまとめて効く。
+  similarCount?: number;
   onClose: () => void;
-  onAccept: (id: string, always: boolean) => Promise<void>;
-  onDismiss: (id: string, always: boolean) => Promise<void>;
+  onAccept: (id: string, options: RedirectDecisionOptions) => Promise<void>;
+  onDismiss: (id: string, options: RedirectDecisionOptions) => Promise<void>;
 }
 
 // URL を「ホスト」と「それ以外」に割る。
@@ -35,11 +37,13 @@ const rowClass = 'px-3 py-2 rounded-xl border text-xs break-all';
 export const RedirectReviewModal: React.FC<RedirectReviewModalProps> = ({
   watch,
   isOpen,
+  similarCount = 0,
   onClose,
   onAccept,
   onDismiss,
 }) => {
   const [always, setAlways] = useState(false);
+  const [onlyThis, setOnlyThis] = useState(false);
   const [submitting, setSubmitting] = useState<'accept' | 'dismiss' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +51,7 @@ export const RedirectReviewModal: React.FC<RedirectReviewModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setAlways(false);
+    setOnlyThis(false);
     setError(null);
     setSubmitting(null);
   }, [isOpen, watch?.id]);
@@ -58,15 +63,21 @@ export const RedirectReviewModal: React.FC<RedirectReviewModalProps> = ({
   const to = splitUrl(proposal.toUrl);
   const restChanged = from.rest !== to.rest;
   const hops = proposal.chain.length > 2 ? proposal.chain.slice(1, -1) : [];
+  // まとめて処理するとき、答えが効く監視の数（この監視を含む）
+  const bulk = similarCount > 0 && !onlyThis;
+  const affected = bulk ? similarCount + 1 : 1;
 
   const run = async (action: 'accept' | 'dismiss') => {
     try {
       setSubmitting(action);
       setError(null);
+      // 画面で「まとめて処理します」と見せたときだけ、他の監視にも効かせる。
+      // 一覧の取り直しで同じ転送が増えていても、見せていないものを巻き込まない。
+      const options: RedirectDecisionOptions = { always, onlyThis: !bulk };
       if (action === 'accept') {
-        await onAccept(watch.id, always);
+        await onAccept(watch.id, options);
       } else {
-        await onDismiss(watch.id, always);
+        await onDismiss(watch.id, options);
       }
       onClose();
     } catch (err: any) {
@@ -186,6 +197,30 @@ export const RedirectReviewModal: React.FC<RedirectReviewModalProps> = ({
           </div>
         )}
 
+        {/* 同じ転送の確認待ちが他にもあれば、答えはまとめて効く。サイト丸ごとの移転で 1 件ずつ答えさせない。 */}
+        {similarCount > 0 && (
+          <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 text-[11px] text-indigo-900 dark:text-indigo-200 space-y-1.5 leading-relaxed">
+            <div className="flex items-start gap-1.5">
+              <Layers className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <span>
+                同じ転送（
+                <span className="font-mono">{from.host}</span> →{' '}
+                <span className="font-mono">{to.host}</span>
+                ）で確認待ちの監視が、ほかに {similarCount} 件あります。まとめて処理します。
+              </span>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={onlyThis}
+                onChange={(e) => setOnlyThis(e.target.checked)}
+                className="accent-indigo-600"
+              />
+              <span>この監視だけを処理する</span>
+            </label>
+          </div>
+        )}
+
         <label className="flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer pt-1">
           <input
             type="checkbox"
@@ -194,9 +229,9 @@ export const RedirectReviewModal: React.FC<RedirectReviewModalProps> = ({
             className="mt-0.5 accent-indigo-600"
           />
           <span>
-            このドメインの行き来は今後たずねない
+            この転送は今後たずねない
             <span className="block text-slate-400 dark:text-slate-500">
-              変更するなら以後は自動で切り替え、変更しないなら以後は知らせません。
+              あなたのほかの監視も含めて、変更するなら以後は自動で切り替え、変更しないなら以後は知らせません。
             </span>
           </span>
         </label>
@@ -221,7 +256,11 @@ export const RedirectReviewModal: React.FC<RedirectReviewModalProps> = ({
             ) : (
               <Check className="w-3.5 h-3.5" />
             )}
-            {submitting === 'accept' ? '変更中...' : '監視先を変更'}
+            {submitting === 'accept'
+              ? '変更中...'
+              : affected > 1
+                ? `${affected}件の監視先を変更`
+                : '監視先を変更'}
           </button>
         </div>
       </div>

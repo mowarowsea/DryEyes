@@ -10,8 +10,17 @@ import { DiffModal } from './components/DiffModal';
 import { RedirectReviewModal } from './components/RedirectReviewModal';
 import { CardImageModal } from './components/CardImageModal';
 import { LoginScreen } from './components/LoginScreen';
-import { WatchModel, HealthStatus, CreateWatchDto, AuthUser, NtfyInfo, AuthSession } from './types';
+import {
+  WatchModel,
+  HealthStatus,
+  CreateWatchDto,
+  AuthUser,
+  NtfyInfo,
+  AuthSession,
+  RedirectDecisionOptions,
+} from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
+import { similarRedirectWatches } from './redirectGroup';
 import { takePendingWatchId, takeCreateIntent, CreateIntent } from './deepLink';
 import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
 import { forgetCardImage } from './hooks/useCardImage';
@@ -283,17 +292,28 @@ export default function App() {
     showToast(message);
   };
 
-  // 検知した移転を承認して、監視先を転送先の URL へ差し替える
-  const handleAcceptRedirect = async (id: string, always: boolean) => {
-    await api.acceptRedirect(id, always);
-    showToast(always ? '監視先を変更しました。以後この行き来は自動で切り替えます' : '監視先を変更しました');
+  // 検知した移転を承認して、監視先を転送先の URL へ差し替える。
+  // 同じ転送で確認待ちの監視もまとめて差し替わるので、何件効いたかをトーストで伝える。
+  const handleAcceptRedirect = async (id: string, options: RedirectDecisionOptions) => {
+    const result = await api.acceptRedirect(id, options);
+    const applied = result.applied ?? 1;
+    const failed = result.failed ?? 0;
+    showToast(
+      (applied > 1 ? `${applied} 件の監視先を変更しました` : '監視先を変更しました') +
+        (failed > 0 ? `（${failed} 件は失敗）` : '') +
+        (options.always ? '。以後この転送は自動で切り替えます' : '')
+    );
     fetchData();
   };
 
   // 移転を却下して、監視先を元の URL のままにする
-  const handleDismissRedirect = async (id: string, always: boolean) => {
-    await api.dismissRedirect(id, always);
-    showToast(always ? '監視先はそのままにしました。以後この転送は知らせません' : '監視先はそのままにしました');
+  const handleDismissRedirect = async (id: string, options: RedirectDecisionOptions) => {
+    const result = await api.dismissRedirect(id, options);
+    const applied = result.applied ?? 1;
+    showToast(
+      (applied > 1 ? `${applied} 件の監視先をそのままにしました` : '監視先はそのままにしました') +
+        (options.always ? '。以後この転送は知らせません' : '')
+    );
     fetchData();
   };
 
@@ -369,6 +389,9 @@ export default function App() {
       <RedirectReviewModal
         watch={redirectTargetWatch}
         isOpen={!!redirectTargetWatch}
+        similarCount={
+          redirectTargetWatch ? similarRedirectWatches(watches, redirectTargetWatch).length : 0
+        }
         onClose={() => setRedirectTargetWatch(null)}
         onAccept={handleAcceptRedirect}
         onDismiss={handleDismissRedirect}

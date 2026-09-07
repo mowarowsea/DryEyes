@@ -135,6 +135,21 @@ export interface RedirectProposal {
   toTitle: string | null; // 遷移先ページのタイトル
 }
 
+// 移転の確認に対する答え方
+export interface RedirectDecisionOptions {
+  // 以後この「転送元 → 転送先」の行き来は確認なしで処理する（自分の監視すべてで）
+  always: boolean;
+  // 同じ転送で確認待ちの他の監視には手を付けず、この監視だけを処理する（既定はまとめて処理）
+  onlyThis: boolean;
+}
+
+// 答えた結果。まとめて処理したときは applied が 2 以上になる
+export interface RedirectDecisionResult {
+  url: string;
+  applied: number; // 処理できた監視の数（起点を含む）
+  failed: number; // 監視先の差し替えに失敗した監視の数（確認待ちのまま残る）
+}
+
 // ---------------------------------------------------------------------------
 // カード背景画像（一覧で監視を見分けるための絵）
 // ---------------------------------------------------------------------------

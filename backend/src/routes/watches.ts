@@ -28,6 +28,7 @@ import { assertSafeProxyTarget } from '../services/urlSafety.js';
 import { requireAuth } from '../middleware/auth.js';
 import {
   CreateWatchDto,
+  RedirectDecisionOptions,
   SaveCardImageDto,
   UpdateWatchDto,
   WatchDiffResponse,
@@ -392,30 +393,47 @@ watchesRouter.post('/:id/viewed', async (req, res) => {
   }
 });
 
+// 移転の確認に対する答え方。
+//   always:   以後この「転送元 → 転送先」の組は確認なしで処理する（このユーザーの監視すべてで）
+//   onlyThis: 同じ組で確認待ちの他の監視には手を付けず、この 1 件だけ処理する（既定はまとめて処理）
+const decisionOptions = (body: any): RedirectDecisionOptions => ({
+  always: Boolean(body?.always),
+  onlyThis: Boolean(body?.onlyThis),
+});
+
 // 検知した移転を承認して、監視先を差し替える。
-// always を立てると、以後この行き先ホストへの移動は確認なしで追従する
-// （example.com ⇄ example.other のように行き来するミラーサイト向け）。
+// 同じ組で確認待ちの監視も、このユーザーの分はまとめて差し替える。
 watchesRouter.post('/:id/redirect/accept', async (req, res) => {
   const watchId = req.params.id;
   if (!ensureOwned(watchId, req.user!.id, res)) return;
 
   try {
-    const proposal = await acceptPendingRedirect(watchId, Boolean(req.body?.always));
-    res.json({ success: true, url: proposal.toUrl });
+    const result = await acceptPendingRedirect(req.user!.id, watchId, decisionOptions(req.body));
+    res.json({
+      success: true,
+      url: result.proposal.toUrl,
+      applied: result.applied,
+      failed: result.failed,
+    });
   } catch (err: any) {
     res.status(upstreamStatus(err)).json({ error: 'Failed to accept redirect', message: err.message });
   }
 });
 
 // 移転を却下して、監視先を元の URL のままにする。
-// always を立てると、以後この行き先への移動は提案しない。
+// 同じ組で確認待ちの監視も、このユーザーの分はまとめて畳む。
 watchesRouter.post('/:id/redirect/dismiss', (req, res) => {
   const watchId = req.params.id;
   if (!ensureOwned(watchId, req.user!.id, res)) return;
 
   try {
-    const proposal = dismissPendingRedirect(watchId, Boolean(req.body?.always));
-    res.json({ success: true, url: proposal.fromUrl });
+    const result = dismissPendingRedirect(req.user!.id, watchId, decisionOptions(req.body));
+    res.json({
+      success: true,
+      url: result.proposal.fromUrl,
+      applied: result.applied,
+      failed: result.failed,
+    });
   } catch (err: any) {
     res.status(400).json({ error: 'Failed to dismiss redirect', message: err.message });
   }

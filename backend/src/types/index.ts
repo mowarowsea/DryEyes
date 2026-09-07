@@ -162,16 +162,37 @@ export interface RedirectProposal {
   toTitle: string | null; // 遷移先ページのタイトル（別サイトへ飛ばされていないかの判断材料）
 }
 
-// 一度ユーザーが判断したホストは覚えておき、同じ行き来で毎回聞かない。
+// 「転送元ホスト → 転送先ホスト」の組。移転の判断はこの単位で覚える。
+export interface RedirectHostPair {
+  from: string;
+  to: string;
+}
+
+// 一度ユーザーが判断した組は覚えておき、同じ行き来で毎回聞かない。
 // 例: example.com ⇄ example.other をちょくちょく往復するミラーサイト。
+// 監視ごとではなくユーザーごとに持つ。サイト丸ごとの移転では同じ組が何十件も並ぶため。
 export interface RedirectDecisions {
-  allowedHosts: string[]; // 承認済み。以後このホストへのリダイレクトは自動で追従する
-  deniedHosts: string[]; // 却下済み。以後このホストへのリダイレクトは提案しない
+  allowed: RedirectHostPair[]; // 承認済み。以後この組の移動は自動で追従する
+  denied: RedirectHostPair[]; // 却下済み。以後この組の移動は提案しない
 }
 
 export interface RedirectStoreData {
   pending: Record<string, RedirectProposal>; // watchId -> 未処理の提案
-  decisions: Record<string, RedirectDecisions>; // watchId -> 判断の記録
+  decisions: Record<string, RedirectDecisions>; // userId -> 判断の記録
+}
+
+// 移転の確認に対する答え方
+export interface RedirectDecisionOptions {
+  // 以後この組の移動は確認なしで処理する（承認なら自動で追従、却下なら提案しない）
+  always: boolean;
+  // 同じ組で確認待ちになっている他の監視には手を付けず、この監視だけを処理する
+  onlyThis: boolean;
+}
+
+export interface RedirectDecisionResult {
+  proposal: RedirectProposal; // 起点にした監視の提案
+  applied: number; // 処理できた監視の数（起点を含む）
+  failed: number; // 監視先の差し替えに失敗した監視の数（確認待ちのまま残る）
 }
 
 // ---------------------------------------------------------------------------

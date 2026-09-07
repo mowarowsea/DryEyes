@@ -1,18 +1,27 @@
 import { changedetectionClient } from './changedetection.js';
 import { hasAnySelectorMatch } from './browserRender.js';
+import { getOwner, isOwnedBy } from './ownership.js';
 import { getPageInfo } from './proxy.js';
 import { traceRedirects } from './redirect.js';
 import {
-  allowRedirectHost,
+  allowRedirect,
   clearPendingRedirect,
-  denyRedirectHost,
+  denyRedirect,
   getPendingRedirect,
+  hostPairOf,
   isAllowedRedirect,
   isDeniedRedirect,
+  listPendingRedirects,
+  sameHostPair,
   setPendingRedirect,
 } from './redirectReview.js';
 import { isTrivialRedirect } from './urlSafety.js';
-import { RedirectProposal, WatchModel } from '../types/index.js';
+import {
+  RedirectDecisionOptions,
+  RedirectDecisionResult,
+  RedirectProposal,
+  WatchModel,
+} from '../types/index.js';
 
 // 監視対象の移転（リダイレクト）を見つけて、ユーザーに確認するまでの流れをまとめたもの。
 //
@@ -22,7 +31,7 @@ import { RedirectProposal, WatchModel } from '../types/index.js';
 //
 // 見つけたときの扱いは 3 通り。
 //   1. 実質同じ URL（https 化・www の付け外し・末尾スラッシュ）→ 黙って追従する
-//   2. 以前ユーザーが承認した行き先 → 黙って追従する（往復するミラーサイト向け）
+//   2. 持ち主が以前「今後たずねない」で承認した組 → 黙って追従する（往復するミラーサイト向け）
 //   3. それ以外 → 提案として積み、画面で確認してもらう。承認されるまで URL は変えない
 //
 // URL を差し替えても履歴は引き継ぐ（スナップショットは消さない）。移転先が同じ内容の
@@ -85,8 +94,11 @@ export async function scanWatchForRedirect(
   };
 
   if (isTrivialRedirect(watch.url, trace.finalUrl)) return follow('実質同じ URL');
-  if (isAllowedRedirect(watch.id, trace.finalUrl)) return follow('承認済みの移転先');
-  if (isDeniedRedirect(watch.id, trace.finalUrl)) return null;
+
+  // 判断は持ち主ごとに覚えている。持ち主の居ない監視（引き継ぎ前のもの）は毎回確認になる
+  const owner = getOwner(watch.id);
+  if (owner && isAllowedRedirect(owner, watch.url, trace.finalUrl)) return follow('承認済みの移転');
+  if (owner && isDeniedRedirect(owner, watch.url, trace.finalUrl)) return null;
 
   // 同じ行き先の提案が既に出ているなら、作り直さない。
   // 判断材料を集め直すのに実ブラウザを起動するので、答えを待っている間は繰り返さない。
@@ -156,40 +168,108 @@ export function startRedirectScanner(): void {
   setInterval(run, SCAN_INTERVAL_MS);
 }
 
-/**
- * 提案を承認して監視先を差し替える。
- * always を立てると、以後この行き先ホストへのリダイレクトは確認なしで追従する。
- */
-export async function acceptPendingRedirect(
-  watchId: string,
-  always: boolean
-): Promise<RedirectProposal> {
-  const proposal = getPendingRedirect(watchId);
-  if (!proposal) throw new Error('確認待ちの移転はありません');
+// ---------------------------------------------------------------------------
+// ユーザーの答え（承認・却下）
+// ---------------------------------------------------------------------------
+//
+// 答えは既定でまとめて効かせる。サイト丸ごとの移転では、同じ持ち主の監視が何十件も
+// 同じ「転送元 → 転送先」の組で確認待ちになる。1 件ずつ答えさせるのは、同じ質問を
+// 何十回も繰り返すのと同じ。onlyThis を立てたときだけ、起点の監視 1 件に絞る。
 
-  await changedetectionClient.updateWatchUrl(watchId, proposal.toUrl);
-  if (always) {
-    allowRedirectHost(watchId, proposal.toUrl);
-    // 往復するミラーは元の URL へも戻るため、戻り先も承認済みにしておく。
-    // そうしないと「元に戻りました」で毎回聞かれることになる。
-    allowRedirectHost(watchId, proposal.fromUrl);
+type PendingEntry = { watchId: string; proposal: RedirectProposal };
+
+// 起点の監視と同じ組で確認待ちになっている、同じ持ち主の監視を集める（起点を先頭に）
+function collectTargets(
+  userId: string,
+  watchId: string,
+  proposal: RedirectProposal,
+  onlyThis: boolean
+): PendingEntry[] {
+  const targets: PendingEntry[] = [{ watchId, proposal }];
+  const pair = hostPairOf(proposal.fromUrl, proposal.toUrl);
+  if (onlyThis || !pair) return targets;
+
+  for (const entry of listPendingRedirects()) {
+    if (entry.watchId === watchId) continue;
+    // 他のユーザーの監視は、その人が自分で答える
+    if (!isOwnedBy(entry.watchId, userId)) continue;
+    const other = hostPairOf(entry.proposal.fromUrl, entry.proposal.toUrl);
+    if (other && sameHostPair(other, pair)) targets.push(entry);
   }
-  clearPendingRedirect(watchId);
-  // 差し替えた URL を起点に、次のスキャンで見直す
-  lastScannedAt.delete(watchId);
-  return proposal;
+  return targets;
 }
 
 /**
- * 提案を却下する。always を立てると、以後この行き先へのリダイレクトは提案しない。
- * always なしの「今回は変更しない」でも、次のスキャン間隔が来るまでは蒸し返さない。
+ * 提案を承認して監視先を差し替える。同じ組の確認待ちも、同じ持ち主の分はまとめて差し替える。
+ * always を立てると、以後この組の移動は確認なしで追従する。
  */
-export function dismissPendingRedirect(watchId: string, always: boolean): RedirectProposal {
+export async function acceptPendingRedirect(
+  userId: string,
+  watchId: string,
+  options: RedirectDecisionOptions
+): Promise<RedirectDecisionResult> {
   const proposal = getPendingRedirect(watchId);
   if (!proposal) throw new Error('確認待ちの移転はありません');
 
-  if (always) denyRedirectHost(watchId, proposal.toUrl);
+  const targets = collectTargets(userId, watchId, proposal, options.onlyThis);
+
+  // 起点の監視だけは失敗をそのまま返す。押した本人が見ている監視なので、黙って飛ばさない。
+  await changedetectionClient.updateWatchUrl(watchId, proposal.toUrl);
   clearPendingRedirect(watchId);
-  lastScannedAt.set(watchId, Date.now());
-  return proposal;
+  // 差し替えた URL を起点に、次のスキャンで見直す
+  lastScannedAt.delete(watchId);
+  let applied = 1;
+  let failed = 0;
+
+  for (const target of targets.slice(1)) {
+    try {
+      await changedetectionClient.updateWatchUrl(target.watchId, target.proposal.toUrl);
+      clearPendingRedirect(target.watchId);
+      lastScannedAt.delete(target.watchId);
+      applied++;
+    } catch (err: any) {
+      // 残りは止めない。失敗した監視は確認待ちのまま残るので、あとからやり直せる
+      failed++;
+      console.warn(`[Redirect] 監視 ${target.watchId} の監視先を差し替えられませんでした:`, err.message);
+    }
+  }
+
+  if (options.always) {
+    allowRedirect(userId, proposal.fromUrl, proposal.toUrl);
+    // 往復するミラーは元の URL へも戻るため、戻り先も承認済みにしておく。
+    // そうしないと「元に戻りました」で毎回聞かれることになる。
+    allowRedirect(userId, proposal.toUrl, proposal.fromUrl);
+  }
+
+  if (targets.length > 1) {
+    console.log(
+      `[Redirect] ${proposal.fromUrl} → ${proposal.toUrl} の移転を ${applied} 件まとめて反映しました` +
+        (failed ? `（${failed} 件は失敗）` : '')
+    );
+  }
+  return { proposal, applied, failed };
+}
+
+/**
+ * 提案を却下する。同じ組の確認待ちも、同じ持ち主の分はまとめて畳む。
+ * always を立てると、以後この組の移動は提案しない。
+ * always なしの「今回は変更しない」でも、次のスキャン間隔が来るまでは蒸し返さない。
+ */
+export function dismissPendingRedirect(
+  userId: string,
+  watchId: string,
+  options: RedirectDecisionOptions
+): RedirectDecisionResult {
+  const proposal = getPendingRedirect(watchId);
+  if (!proposal) throw new Error('確認待ちの移転はありません');
+
+  const targets = collectTargets(userId, watchId, proposal, options.onlyThis);
+  for (const target of targets) {
+    clearPendingRedirect(target.watchId);
+    lastScannedAt.set(target.watchId, Date.now());
+  }
+
+  if (options.always) denyRedirect(userId, proposal.fromUrl, proposal.toUrl);
+
+  return { proposal, applied: targets.length, failed: 0 };
 }
