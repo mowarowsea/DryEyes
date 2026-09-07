@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { CreateWatchModal } from '../components/CreateWatchModal';
 import { api } from '../api';
+import { WatchModel } from '../types';
 
 // 登録前の重複確認は、既定では「見つからない」。見つかる場合のテストで個別に差し替える。
 beforeEach(() => {
@@ -19,7 +20,8 @@ const renderModal = (
   onClose = vi.fn(),
   onSubmit = vi.fn().mockResolvedValue(undefined),
   initialUrl: string | null = null,
-  onOpenExisting?: (watchId: string) => void
+  onOpenExisting?: (watchId: string) => void,
+  watches: WatchModel[] = []
 ) => {
   render(
     <CreateWatchModal
@@ -29,6 +31,7 @@ const renderModal = (
       userTopic="dryeyes-mowa-94cf11"
       initialUrl={initialUrl}
       onOpenExisting={onOpenExisting}
+      watches={watches}
     />
   );
   return { onClose, onSubmit };
@@ -302,5 +305,89 @@ describe('登録前の重複確認', () => {
     // 別ドメインで登録済みのときは、どこで登録したかが分かる
     expect(screen.getByText(/old\.example/)).toBeInTheDocument();
     expect(screen.queryByTitle('Page Preview')).not.toBeInTheDocument();
+  });
+});
+
+// 同じサイトのページは作りが揃っているので、他の監視の監視場所をそのまま使えることが多い。
+// 毎回タップし直さずに済むよう、候補がこのページにも当たるなら 1 タップで登録できる。
+describe('同じサイトの監視から監視場所を引き継ぐ', () => {
+  const LIST = '//*[@id="list"]/li/a';
+  const watchOn = (
+    id: string,
+    url: string,
+    includeFilters: string[],
+    subtractedFilters: string[] = []
+  ): WatchModel => ({
+    id,
+    url,
+    title: id,
+    fetchBackend: 'html_webdriver',
+    checkIntervalMinutes: 180,
+    paused: false,
+    lastChecked: null,
+    lastChanged: null,
+    hasError: false,
+    lastError: null,
+    includeFilters,
+    subtractedFilters,
+    notificationTopic: '',
+  });
+  const sameSite = [
+    watchOn('w1', 'https://example.com/manga/a', [LIST]),
+    watchOn('w2', 'https://example.com/manga/b', [LIST], ['.ad']),
+    watchOn('w3', 'https://example.com/manga/c', [LIST], ['.ad']),
+  ];
+
+  // プレビューが「このページで何件に当たったか」を返してきた体にする
+  const probeResult = (count: number, texts: string[]) =>
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'DRYEYES_PROBE_RESULT', count, texts },
+        })
+      );
+    });
+
+  it('registers with the selectors shared by the other watches of the same site in one tap', async () => {
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    const { onSubmit } = renderModal(vi.fn(), vi.fn().mockResolvedValue(undefined), null, undefined, sameSite);
+
+    await proceedToPicker();
+    expect(screen.getByText(/このサイトの他の監視 3 件/)).toBeInTheDocument();
+    // このページに当たると分かるまでは登録ボタンを出さない
+    expect(screen.queryByRole('button', { name: /同じ場所で登録する/ })).not.toBeInTheDocument();
+
+    probeResult(48, ['第42.1話', '第41話']);
+    expect(screen.getByText(/48 件が当たります/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /同じ場所で登録する/ }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://example.com/manga',
+        title: 'ぐらんぶる',
+        includeFilters: [LIST],
+        // 除外は同じ場所を見ている監視の多数派に揃う
+        subtractedFilters: ['.ad'],
+      })
+    );
+  });
+
+  it('offers nothing when no other watch of the site has a selector', async () => {
+    vi.spyOn(api, 'getPageInfo').mockResolvedValue({
+      title: 'ぐらんぶる',
+      url: 'https://example.com/manga',
+    });
+    renderModal(vi.fn(), vi.fn(), null, undefined, [
+      watchOn('other', 'https://other.example/x', [LIST]),
+    ]);
+
+    await proceedToPicker();
+
+    expect(screen.queryByText(/同じ場所を見張れます/)).not.toBeInTheDocument();
   });
 });

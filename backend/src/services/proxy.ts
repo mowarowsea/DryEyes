@@ -66,6 +66,8 @@ const INSPECTOR_SCRIPT = `
       clearBatchHighlight();
     } else if (event.data.type === 'DRYEYES_EXPAND_SELECTION') {
       expandSelection();
+    } else if (event.data.type === 'DRYEYES_PROBE_SELECTORS') {
+      probeSelectors(event.data.selectors, event.data.requestId);
     }
   });
 
@@ -225,6 +227,48 @@ ${ELEMENT_PATH_HELPERS}
       if (t) texts.push(t.substring(0, 100));
     });
     return texts;
+  }
+
+  // 監視セレクタ 1 本に当たる要素。DryEyes が作るのは XPath だが、手で書いた CSS セレクタも通す。
+  function nodesForSelector(selector) {
+    var s = String(selector || '').trim();
+    if (!s) return [];
+    if (s.charAt(0) === '/' || s.charAt(0) === '(') return evaluateNodes(s);
+    try {
+      return Array.prototype.slice.call(document.querySelectorAll(s));
+    } catch (e) {
+      return evaluateNodes(s);
+    }
+  }
+
+  // 親から渡された監視セレクタがこのページで何件に当たるかを調べ、当たった要素を目立たせて返す。
+  // 同じサイトの他の監視から監視場所を引き継ぐときに、このページにも当てはまるかを見せるため。
+  // requestId は親がそのまま返してほしい通し番号（読み込み直す前のページからの返事を見分ける）。
+  function probeSelectors(selectors, requestId) {
+    clearBatchHighlight();
+    var nodes = [];
+    (selectors || []).forEach(function(selector) {
+      nodesForSelector(selector).forEach(function(node) {
+        if (nodes.indexOf(node) === -1) nodes.push(node);
+      });
+    });
+
+    var texts = [];
+    nodes.forEach(function(node) {
+      if (node.classList) {
+        node.classList.add('dryeyes-inspect-batch-highlight');
+        batchHighlightedElements.push(node);
+      }
+      var t = (node.innerText || node.textContent || '').trim().replace(/\\s+/g, ' ');
+      if (t && texts.length < 20) texts.push(t.substring(0, 100));
+    });
+
+    window.parent.postMessage({
+      type: 'DRYEYES_PROBE_RESULT',
+      requestId: requestId,
+      count: nodes.length,
+      texts: texts
+    }, '*');
   }
 
   // 選んだ要素を親ウィンドウへ知らせる。クリックからも「選択範囲を拡大」からも通る。

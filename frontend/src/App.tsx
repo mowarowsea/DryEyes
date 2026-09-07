@@ -369,6 +369,7 @@ export default function App() {
         }}
         onSubmit={handleCreateWatch}
         userTopic={userTopic}
+        watches={watches}
         onOpenExisting={(id) => {
           const existing = watches.find((w) => w.id === id);
           if (existing) setDiffTargetWatch(existing);

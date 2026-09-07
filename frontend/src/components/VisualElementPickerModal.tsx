@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   MousePointerClick,
@@ -16,6 +16,7 @@ import {
 import { useEscapeToClose } from './Modal';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
 import { apiUrl } from '../api';
+import { SiteTemplate } from '../siteTemplate';
 
 // プレビューする iframe に与える権限。
 //
@@ -59,6 +60,13 @@ interface VisualElementPickerModalProps {
   error?: string | null;
   /** 折りたたんで置く追加設定。登録ウィザードでは表示名やチェック間隔が入る。 */
   options?: React.ReactNode;
+  /**
+   * 同じサイトの他の監視が見ている場所。渡すと、このページにも当てはまるかを調べて
+   * 「同じ場所で登録する」を出す（要素をタップし直す手間を省くため）。
+   */
+  template?: SiteTemplate | null;
+  /** 引き継いだ監視場所で確定する。texts はこのページでその場所に当たった要素の文字列。 */
+  onApplyTemplate?: (template: SiteTemplate, texts: string[]) => void;
   onClose: () => void;
   /**
    * 選択した要素を親へ渡す。閉じるかどうかは親が決める
@@ -77,10 +85,16 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   submitting = false,
   error,
   options,
+  template,
+  onApplyTemplate,
   onClose,
   onSelectXPath,
 }) => {
   const [selectedElement, setSelectedElement] = useState<SelectedElementData | null>(null);
+  // 引き継ぎ候補の監視場所が、このページで何件に当たったか（null は調べている最中）
+  const [probe, setProbe] = useState<{ count: number; texts: string[] } | null>(null);
+  // 読み込み直す前のページからの返事を、新しいページの結果として受け取らないための通し番号
+  const probeRequest = useRef(0);
   const [targetMode, setTargetMode] = useState<'single' | 'similar'>('single');
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -101,6 +115,24 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     if (iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'DRYEYES_HIGHLIGHT_XPATH', xpath }, '*');
     }
+  };
+
+  // 引き継ぎ候補の監視場所がこのページにもあるかをプレビューに調べさせる。
+  // 当たった要素はプレビュー側で目立たせられ、結果は DRYEYES_PROBE_RESULT で返ってくる。
+  const probeTemplate = () => {
+    if (!template) return;
+    const iframe = document.getElementById('dryeyes-preview-iframe') as HTMLIFrameElement | null;
+    if (!iframe || !iframe.contentWindow) return;
+    probeRequest.current += 1;
+    setProbe(null);
+    iframe.contentWindow.postMessage(
+      {
+        type: 'DRYEYES_PROBE_SELECTORS',
+        selectors: template.includeFilters,
+        requestId: probeRequest.current,
+      },
+      '*'
+    );
   };
 
   // 開き直したときや対象が変わったときは、また軽い描画から始める
@@ -125,6 +157,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         setSelectedElement(payload);
         setTargetMode('single');
         sendHighlightToIframe(payload.xpath);
+      } else if (event.data.type === 'DRYEYES_PROBE_RESULT') {
+        // 通し番号が付いていれば、いま出している問い合わせへの返事だけを受け取る
+        const { requestId } = event.data;
+        if (requestId !== undefined && requestId !== probeRequest.current) return;
+        setProbe({ count: Number(event.data.count) || 0, texts: event.data.texts || [] });
       } else if (event.data.type === 'DRYEYES_RENDER_MODE') {
         // 頼んだ描画と返ってきた描画が食い違ったら、押しても変わらない理由を出す
         setBrowserRenderFailed(event.data.mode === 'static' && renderMode === 'browser');
@@ -148,6 +185,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const reloadPreview = () => {
     setLoading(true);
     setSelectedElement(null);
+    setProbe(null);
     setIframeKey((k) => k + 1);
   };
 
@@ -281,6 +319,9 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                     ? selectedElement.similarXPath
                     : selectedElement.xpath;
                 sendHighlightToIframe(path);
+              } else {
+                // まだ何も選んでいなければ、引き継ぎ候補がこのページにもあるかを調べて見せる
+                probeTemplate();
               }
             }}
             className="w-full h-full border-none bg-white dark:bg-slate-900"
@@ -342,6 +383,53 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                     {selectedElement?.similarCount}件
                   </span>
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* 同じサイトの他の監視が見ている場所。このページにも当たるなら、タップせずにそのまま登録できる。
+              要素を自分で選び始めたら、その邪魔にならないよう引っ込める。 */}
+          {template && !selectedElement && (
+            <div className="p-2.5 rounded-xl border bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30 flex flex-col gap-2">
+              <p className="flex items-start gap-1.5 text-xs text-emerald-900 dark:text-emerald-100 leading-relaxed">
+                <Layers className="w-4 h-4 flex-shrink-0 mt-px text-emerald-600 dark:text-emerald-300" />
+                <span className="min-w-0">
+                  <span className="font-semibold">このサイトの他の監視 {template.count} 件</span>
+                  と同じ場所を見張れます。
+                  {probe === null
+                    ? 'このページで探しています…'
+                    : probe.count > 0
+                      ? `このページでは ${probe.count} 件が当たります` +
+                        (probe.texts[0] ? `（${probe.texts[0]} など）` : '')
+                      : 'ただし、このページでは見つかりませんでした。'}
+                </span>
+              </p>
+
+              {probe !== null && probe.count > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onApplyTemplate?.(template, probe.texts)}
+                  disabled={submitting}
+                  className="w-full px-4 py-3 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  {submitting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>登録中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>同じ場所で登録する</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {probe !== null && probe.count === 0 && renderMode === 'static' && (
+                <p className="text-[11px] text-emerald-800/80 dark:text-emerald-200/80 leading-relaxed">
+                  JS で後から出てくる部分かもしれません。「もうちょっと頑張って描画する」で見つかることがあります。
+                </p>
               )}
             </div>
           )}

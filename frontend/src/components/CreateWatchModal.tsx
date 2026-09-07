@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Clock,
   ArrowRight,
@@ -8,11 +8,12 @@ import {
   ClipboardPaste,
   Eye,
 } from 'lucide-react';
-import { CreateWatchDto, DuplicateWatch } from '../types';
+import { CreateWatchDto, DuplicateWatch, WatchModel } from '../types';
 import { VisualElementPickerModal } from './VisualElementPickerModal';
 import { Modal } from './Modal';
 import { DEFAULT_INTERVAL_MINUTES, IntervalPicker, intervalLabel } from './IntervalPicker';
 import { api } from '../api';
+import { SiteTemplate, suggestSiteTemplate } from '../siteTemplate';
 import { canReadClipboard, readTextFromClipboard } from '../clipboard';
 import { cancelButtonClass, largeInputClass, monoInputClass, submitButtonClass } from '../ui';
 
@@ -26,6 +27,8 @@ interface CreateWatchModalProps {
   initialUrl?: string | null;
   /** 同じページを見ている監視が既にあったとき、その監視を開く（登録モーダルは閉じる） */
   onOpenExisting?: (watchId: string) => void;
+  /** 登録済みの監視。同じサイトの監視があれば、その監視場所を引き継ぐ候補にする。 */
+  watches?: WatchModel[];
 }
 
 // 移転で結ばれた重複は、どのドメインで登録済みかが分かると納得しやすい
@@ -48,6 +51,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
   userTopic,
   initialUrl,
   onOpenExisting,
+  watches,
 }) => {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   // 同じページを見ている監視が既にあるときに、Step 1 に出す案内
@@ -79,6 +83,9 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     autoOpenedFor.current = initialUrl;
     void proceedToPicker(initialUrl);
   }, [isOpen, initialUrl]);
+
+  // 同じサイトの他の監視が見ている場所。あれば要素をタップせずに同じ場所で登録できる。
+  const siteTemplate = useMemo(() => suggestSiteTemplate(url, watches ?? []), [url, watches]);
 
   if (!isOpen) return null;
 
@@ -176,7 +183,21 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
     void submitWatch(xpath ? [xpath] : linesOf(includeFilters));
   };
 
-  const submitWatch = async (include: string[]) => {
+  // 同じサイトの他の監視から引き継いだ場所で、そのまま登録まで進む。
+  // この画面で足した除外があれば、引き継いだ除外と合わせて使う。
+  const handleApplyTemplate = (template: SiteTemplate) => {
+    const subtracted = Array.from(
+      new Set([...template.subtractedFilters, ...linesOf(subtractedFilters)])
+    );
+    setIncludeFilters(template.includeFilters.join('\n'));
+    setSubtractedFilters(subtracted.join('\n'));
+    void submitWatch(template.includeFilters, subtracted);
+  };
+
+  const submitWatch = async (
+    include: string[],
+    subtracted: string[] = linesOf(subtractedFilters)
+  ) => {
     try {
       setSubmitting(true);
       setError(null);
@@ -189,7 +210,7 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
         // 指定した場合もそのユーザーのトピック配下に閉じ込められる。
         notificationTopic: notificationTopic.trim() || undefined,
         includeFilters: include,
-        subtractedFilters: linesOf(subtractedFilters),
+        subtractedFilters: subtracted,
       });
       handleClose();
     } catch (err: any) {
@@ -419,6 +440,8 @@ export const CreateWatchModal: React.FC<CreateWatchModalProps> = ({
         options={optionsPanel}
         targetUrl={url}
         initialRenderMode={pickerRenderMode}
+        template={siteTemplate}
+        onApplyTemplate={handleApplyTemplate}
         onClose={() => setIsPickerOpen(false)}
         onSelectXPath={handlePickerConfirm}
       />

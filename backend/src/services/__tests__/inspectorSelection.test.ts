@@ -69,3 +69,47 @@ describe('プレビューで要素を選んだときに親へ渡す中身', () =
     expect(payload.similarXPath).toBe(payload.xpath);
   });
 });
+
+// 同じサイトの他の監視から監視場所を引き継ぐとき、親はセレクタを渡して
+// 「このページでも当たるか」を調べさせる。
+describe('引き継ぎ候補の監視場所をこのページで調べる', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const probe = (selectors: string[], requestId: number) =>
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent('message', {
+        data: { type: 'DRYEYES_PROBE_SELECTORS', selectors, requestId },
+      })
+    );
+
+  // 同じ window で前のテストの Inspector も生きていて同じ返事を重ねて返すので、
+  // 件数ではなく通し番号で拾って中身を見る
+  const resultFor = (inspector: { messages: any[] }, requestId: number) =>
+    inspector.messages.find((m) => m.type === 'DRYEYES_PROBE_RESULT' && m.requestId === requestId);
+
+  it('XPath でも CSS セレクタでも、件数と文字列を返して当たった要素を目立たせる', async () => {
+    const inspector = await runInspectorOn(
+      '<ul id="list"><li><a href="/1">第1話</a></li><li><a href="/2">第2話</a></li></ul>' +
+        '<p id="other">本文</p>'
+    );
+
+    probe(['//*[@id="list"]/li/a'], 3);
+
+    expect(resultFor(inspector, 3)).toMatchObject({ count: 2, texts: ['第1話', '第2話'] });
+    expect(dom.document.querySelectorAll('.dryeyes-inspect-batch-highlight')).toHaveLength(2);
+
+    probe(['#list li a'], 4);
+    expect(resultFor(inspector, 4)).toMatchObject({ count: 2, texts: ['第1話', '第2話'] });
+  });
+
+  it('当たらなければ 0 件を返し、前のハイライトは消す', async () => {
+    const inspector = await runInspectorOn('<ul id="list"><li><a href="/1">第1話</a></li></ul>');
+
+    probe(['#list li a'], 11);
+    expect(resultFor(inspector, 11)).toMatchObject({ count: 1 });
+
+    probe(['//*[@id="nothing"]/a'], 12);
+    expect(resultFor(inspector, 12)).toMatchObject({ count: 0, texts: [] });
+    expect(dom.document.querySelectorAll('.dryeyes-inspect-batch-highlight')).toHaveLength(0);
+  });
+});
