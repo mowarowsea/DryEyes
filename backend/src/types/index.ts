@@ -129,6 +129,15 @@ export interface WatchDiffResponse extends DiffResult {
   currentPreview?: string[];
 }
 
+// 変更履歴の 1 件分（そのスナップショットと、その直前のスナップショットの比較）
+export interface HistoryDiffResponse extends DiffResult {
+  watchId: string;
+  from: number | null; // 直前のスナップショットの時刻 (unix秒)。最初のスナップショットでは null
+  to: number; // このスナップショットの時刻 (unix秒)
+  // 最初のスナップショット（比べる相手が無い）のときに、その内容を数行だけ返す
+  snapshotPreview?: string[];
+}
+
 // ユーザーごと・監視ごとの既読状態
 export interface WatchViewState {
   snapshotTimestamp: number; // 既読にしたスナップショットの時刻 (unix秒)

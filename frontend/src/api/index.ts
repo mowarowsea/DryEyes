@@ -13,6 +13,7 @@ import {
   RedirectDecisionOptions,
   RedirectDecisionResult,
   DuplicateWatch,
+  HistoryDiff,
 } from '../types';
 import { parseCropHeader } from '../cardImage';
 
@@ -249,7 +250,14 @@ export const api = {
 
   async getHistory(id: string): Promise<WatchHistoryItem[]> {
     const res = await request(`/watches/${id}/history`);
-    if (!res.ok) throw new Error('Failed to fetch history');
+    if (!res.ok) throw new Error(await errorMessage(res, '履歴の取得に失敗しました'));
+    return res.json();
+  },
+
+  // 履歴の 1 件分の差分（そのスナップショットと、その直前のスナップショットの比較）
+  async getHistoryDiff(id: string, timestamp: number): Promise<HistoryDiff> {
+    const res = await request(`/watches/${id}/history/${timestamp}/diff`);
+    if (!res.ok) throw new Error(await errorMessage(res, '差分の取得に失敗しました'));
     return res.json();
   },
 

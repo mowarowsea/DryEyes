@@ -30,6 +30,7 @@ describe('WatchCard のカード背景', () => {
       <WatchCard
         watch={watch}
         onChangeImage={vi.fn()}
+        onOpenHistory={vi.fn()}
         onTriggerCheck={vi.fn()}
         onTogglePause={vi.fn()}
         onOpenDiff={vi.fn()}
@@ -120,6 +121,7 @@ describe('取得結果の共有', () => {
       onCopyTo={vi.fn()}
       onReviewRedirect={vi.fn()}
       onChangeImage={vi.fn()}
+      onOpenHistory={vi.fn()}
     />
   );
 
@@ -198,6 +200,7 @@ describe('背景を切っているとき', () => {
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
+        onOpenHistory={vi.fn()}
       />
     );
 
@@ -271,6 +274,7 @@ describe('切り抜きの指定があるとき', () => {
           onCopyTo={vi.fn()}
           onReviewRedirect={vi.fn()}
           onChangeImage={vi.fn()}
+          onOpenHistory={vi.fn()}
         />
       );
 
@@ -320,6 +324,7 @@ describe('背景画像を変更のメニュー', () => {
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
         onChangeImage={onChangeImage}
+        onOpenHistory={vi.fn()}
       />
     );
     return onChangeImage;

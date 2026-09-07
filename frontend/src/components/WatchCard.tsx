@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Copy,
   Globe,
+  History,
   Image as ImageIcon,
   MoreVertical,
   Pause,
@@ -28,6 +29,8 @@ interface WatchCardProps {
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
+  // 変更履歴（いつ何が変わったか）を開く
+  onOpenHistory: (watch: WatchModel) => void;
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
@@ -82,6 +85,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
+  onOpenHistory,
   onEdit,
   onDelete,
   onCopyTo,
@@ -307,6 +311,17 @@ export const WatchCard: React.FC<WatchCardProps> = ({
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin text-indigo-600' : 'text-slate-400'}`} />
                 今すぐチェック
+              </button>
+
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenHistory(watch);
+                }}
+                className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+              >
+                <History className="w-3.5 h-3.5 text-slate-400" />
+                変更履歴
               </button>
 
               <button

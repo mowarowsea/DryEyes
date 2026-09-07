@@ -18,6 +18,7 @@ import {
   pruneRedirectState,
 } from '../services/redirectReview.js';
 import { findDuplicateWatch } from '../services/duplicate.js';
+import { buildHistoryDiff } from '../services/historyDiff.js';
 import { acceptPendingRedirect, dismissPendingRedirect } from '../services/redirectScan.js';
 import {
   clearCardImage,
@@ -338,6 +339,26 @@ watchesRouter.get('/:id/history', async (req, res) => {
     res.json(history);
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to fetch history', message: err.message });
+  }
+});
+
+// 履歴の 1 件分の差分（そのスナップショットと、その直前のスナップショットの比較）
+watchesRouter.get('/:id/history/:timestamp/diff', async (req, res) => {
+  if (!ensureOwned(req.params.id, req.user!.id, res)) return;
+
+  const timestamp = Number(req.params.timestamp);
+  if (!Number.isInteger(timestamp)) {
+    return res.status(400).json({ error: 'Invalid timestamp', message: '時刻の指定が正しくありません' });
+  }
+
+  try {
+    const result = await buildHistoryDiff(changedetectionClient, req.params.id, timestamp);
+    if (!result) {
+      return res.status(404).json({ error: 'Not found', message: 'そのスナップショットは見つかりません' });
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to build history diff', message: err.message });
   }
 });
 

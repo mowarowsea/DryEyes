@@ -117,6 +117,7 @@ describe('一覧の並び', () => {
         onCopyTo={() => undefined}
         onReviewRedirect={() => undefined}
         onChangeImage={() => undefined}
+        onOpenHistory={() => undefined}
         onOpenCreateModal={() => undefined}
       />
     );
@@ -148,6 +149,7 @@ describe('一覧の並び', () => {
         onCopyTo={() => undefined}
         onReviewRedirect={() => undefined}
         onChangeImage={() => undefined}
+        onOpenHistory={() => undefined}
         onOpenCreateModal={() => undefined}
       />
     );

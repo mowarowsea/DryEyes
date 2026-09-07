@@ -43,6 +43,7 @@ describe('WatchCard', () => {
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
+        onOpenHistory={vi.fn()}
         {...handlers}
       />
     );
@@ -137,6 +138,7 @@ describe('WatchCard', () => {
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
+        onOpenHistory={vi.fn()}
       />
     );
 
@@ -153,6 +155,16 @@ describe('WatchCard', () => {
     fireEvent.click(screen.getByText('設定を変更'));
 
     expect(handleEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
+  });
+
+  it('opens the change history from the option menu', () => {
+    const handleOpenHistory = vi.fn();
+    renderCard({}, { onOpenHistory: handleOpenHistory });
+
+    openMenu();
+    fireEvent.click(screen.getByText('変更履歴'));
+
+    expect(handleOpenHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'test-123' }));
   });
 
   it('opens the copy-to modal from the option menu', () => {

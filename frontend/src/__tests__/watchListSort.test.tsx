@@ -42,6 +42,7 @@ const renderList = (props: Partial<React.ComponentProps<typeof WatchList>> = {})
       onCopyTo={vi.fn()}
       onReviewRedirect={vi.fn()}
       onChangeImage={vi.fn()}
+      onOpenHistory={vi.fn()}
       onOpenCreateModal={vi.fn()}
       {...props}
     />
@@ -144,6 +145,7 @@ describe('登録直後の強調', () => {
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
+        onOpenHistory={vi.fn()}
         onOpenCreateModal={vi.fn()}
       />
     );
@@ -179,6 +181,7 @@ describe('登録直後の強調', () => {
         onCopyTo={vi.fn()}
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
+        onOpenHistory={vi.fn()}
         onOpenCreateModal={vi.fn()}
       />
     );

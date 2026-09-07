@@ -136,6 +136,20 @@ describe('DiffModal', () => {
     expect(screen.queryByText(/変更なし/)).not.toBeInTheDocument();
   });
 
+  it('offers the change history next to the summary', async () => {
+    vi.spyOn(api, 'getDiff').mockResolvedValue(diff);
+    const onOpenHistory = vi.fn();
+
+    render(
+      <DiffModal watch={watch} isOpen onClose={vi.fn()} onViewed={vi.fn()} onOpenHistory={onOpenHistory} />
+    );
+    await waitFor(() => expect(screen.getByText('第112話')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /履歴/ }));
+
+    expect(onOpenHistory).toHaveBeenCalled();
+  });
+
   it('shows the error message when the diff cannot be loaded', async () => {
     vi.spyOn(api, 'getDiff').mockRejectedValue(new Error('差分の取得に失敗しました'));
 

@@ -19,6 +19,8 @@ interface WatchListProps {
   onTriggerCheck: (id: string) => Promise<void>;
   onTogglePause: (id: string, paused: boolean) => Promise<void>;
   onOpenDiff: (watch: WatchModel) => void;
+  // 変更履歴（いつ何が変わったか）を開く
+  onOpenHistory: (watch: WatchModel) => void;
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
@@ -37,6 +39,7 @@ export const WatchList: React.FC<WatchListProps> = ({
   onTriggerCheck,
   onTogglePause,
   onOpenDiff,
+  onOpenHistory,
   onEdit,
   onDelete,
   onCopyTo,
@@ -136,6 +139,7 @@ export const WatchList: React.FC<WatchListProps> = ({
               onTriggerCheck={onTriggerCheck}
               onTogglePause={onTogglePause}
               onOpenDiff={onOpenDiff}
+              onOpenHistory={onOpenHistory}
               onEdit={onEdit}
               onDelete={onDelete}
               onCopyTo={onCopyTo}

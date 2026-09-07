@@ -128,6 +128,18 @@ export interface WatchDiff {
   currentPreview?: string[]; // 差分を出さない（初回のみ／確認済み）場合の現在値
 }
 
+// 変更履歴の 1 件分（そのスナップショットと、その直前のスナップショットの比較）
+export interface HistoryDiff {
+  watchId: string;
+  from: number | null; // 直前のスナップショットの時刻 (unix秒)。最初のスナップショットでは null
+  to: number; // このスナップショットの時刻 (unix秒)
+  lines: DiffLine[];
+  added: number;
+  removed: number;
+  truncated: boolean;
+  snapshotPreview?: string[]; // 最初のスナップショット（比べる相手が無い）の内容
+}
+
 // ---------------------------------------------------------------------------
 // リダイレクト追従（監視先の移転）
 // ---------------------------------------------------------------------------

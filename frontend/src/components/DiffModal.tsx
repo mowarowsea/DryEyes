@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { GitCompare, ExternalLink, Check, Plus, Minus, Clock } from 'lucide-react';
+import { GitCompare, ExternalLink, Check, Plus, Minus, Clock, History } from 'lucide-react';
 import { WatchModel, WatchDiff } from '../types';
 import { api } from '../api';
 import { Modal } from './Modal';
+import { DiffLines } from './DiffLines';
 import { externalLinkProps } from '../externalLink';
 
 interface DiffModalProps {
@@ -11,6 +12,8 @@ interface DiffModalProps {
   onClose: () => void;
   /** 既読にしたあと一覧を更新してもらうためのコールバック */
   onViewed: () => void;
+  /** この監視の変更履歴（いつ何が変わったか）を開く */
+  onOpenHistory?: () => void;
 }
 
 const formatDateTime = (ts: number | null) => {
@@ -23,7 +26,13 @@ const formatDateTime = (ts: number | null) => {
   });
 };
 
-export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, onViewed }) => {
+export const DiffModal: React.FC<DiffModalProps> = ({
+  watch,
+  isOpen,
+  onClose,
+  onViewed,
+  onOpenHistory,
+}) => {
   const [diff, setDiff] = useState<WatchDiff | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,18 +108,32 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
             )}
           </span>
 
-          {hasChanges && (
-            <span className="flex items-center space-x-1.5">
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30">
-                <Plus className="w-3 h-3 mr-0.5" />
-                {diff.added}
+          <span className="flex items-center gap-2">
+            {hasChanges && (
+              <span className="flex items-center space-x-1.5">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-500/30">
+                  <Plus className="w-3 h-3 mr-0.5" />
+                  {diff.added}
+                </span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-500/30">
+                  <Minus className="w-3 h-3 mr-0.5" />
+                  {diff.removed}
+                </span>
               </span>
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-200/60 dark:border-rose-500/30">
-                <Minus className="w-3 h-3 mr-0.5" />
-                {diff.removed}
-              </span>
-            </span>
-          )}
+            )}
+
+            {/* 「前回見てから」ではなく、1 回ずつの変わり方を見たいときの入口 */}
+            {onOpenHistory && (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition"
+              >
+                <History className="w-3.5 h-3.5" />
+                履歴
+              </button>
+            )}
+          </span>
         </div>
       )}
 
@@ -141,43 +164,7 @@ export const DiffModal: React.FC<DiffModalProps> = ({ watch, isOpen, onClose, on
             <p>この期間に変わった箇所はありません。</p>
           </div>
         ) : (
-          <div className="px-2 sm:px-3 py-3">
-            <div className="font-mono text-[11px] sm:text-xs leading-relaxed">
-              {diff!.lines.map((line, idx) => {
-                if (line.type === 'gap') {
-                  return (
-                    <div
-                      key={idx}
-                      className="my-1 py-1 text-center text-[10px] text-slate-400 dark:text-slate-500 bg-slate-50/80 dark:bg-slate-800/60 border-y border-dashed border-slate-200 dark:border-slate-700"
-                    >
-                      変更なし {line.count} 行
-                    </div>
-                  );
-                }
-
-                const style =
-                  line.type === 'added'
-                    ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-l-2 border-emerald-400 dark:border-emerald-500'
-                    : line.type === 'removed'
-                      ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-800 dark:text-rose-200 border-l-2 border-rose-400 dark:border-rose-500'
-                      : 'text-slate-500 dark:text-slate-400 border-l-2 border-transparent';
-                const marker = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
-
-                return (
-                  <div key={idx} className={`flex px-1.5 py-0.5 rounded-r ${style}`}>
-                    <span className="w-3 flex-shrink-0 select-none opacity-70">{marker}</span>
-                    <span className="flex-1 whitespace-pre-wrap break-all">{line.text}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {diff!.truncated && (
-              <p className="mt-2 mx-1.5 text-[10px] text-amber-600 dark:text-amber-400">
-                変更が多いため、途中までを表示しています。
-              </p>
-            )}
-          </div>
+          <DiffLines lines={diff!.lines} truncated={diff!.truncated} />
         )}
       </div>
 
