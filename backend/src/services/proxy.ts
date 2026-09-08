@@ -135,15 +135,55 @@ const INSPECTOR_SCRIPT = `
     }
   }
 
+  // ---- スタイルシートは BFF 経由で読む ----
+  //
+  // ウェブフォントは CORS 必須。サイト自身が配るフォントは Access-Control-Allow-Origin を
+  // 付けていないことが多く、別オリジンのこのプレビューからは読めずにアイコンフォントが
+  // 「☒」になる。<link rel="stylesheet"> を BFF の asset エンドポイントへ向け直すと、
+  // BFF が CSS 内のフォント URL も自分経由へ書き換えて返す（proxy.ts の rewriteCss）。
+  // エンドポイントの場所はこのプレビュー自身の URL（.../proxy/page）から相対で求める。
+  // BFF は自分の公開 URL（Tailscale のホスト名やサブパス）を知らないため。
+  var ASSET_ENDPOINT = null;
+  try { ASSET_ENDPOINT = new URL('asset', location.href).href; } catch (e) {}
+
+  function rerouteStylesheet(link) {
+    if (!ASSET_ENDPOINT) return;
+    var rel = (link.getAttribute('rel') || '').toLowerCase().split(/\\s+/);
+    if (rel.indexOf('stylesheet') === -1) return;
+    var href = link.getAttribute('href');
+    if (!href || href.indexOf(ASSET_ENDPOINT) === 0) return;
+    // BFF で取れなかった CSS は元の URL から直接読む（従来どおり、フォントだけ出ない）
+    if (link.hasAttribute('data-dryeyes-css-direct')) return;
+    var absolute;
+    try { absolute = new URL(href, document.baseURI).href; } catch (e) { return; }
+    if (!/^https?:/i.test(absolute)) return;
+
+    link.setAttribute('data-dryeyes-css', absolute);
+    // 中身を書き換えて返すので、元のハッシュ (SRI) とは合わなくなる
+    link.removeAttribute('integrity');
+    if (!link.hasAttribute('data-dryeyes-css-watched')) {
+      link.setAttribute('data-dryeyes-css-watched', '');
+      link.addEventListener('error', function() {
+        var original = link.getAttribute('data-dryeyes-css');
+        if (!original || link.hasAttribute('data-dryeyes-css-direct')) return;
+        link.setAttribute('data-dryeyes-css-direct', '');
+        link.setAttribute('href', original);
+      });
+    }
+    link.setAttribute('href', ASSET_ENDPOINT + '?url=' + encodeURIComponent(absolute) + '&kind=css');
+  }
+
   function neutralizeTree(root) {
     if (!root || root.nodeType !== 1) return;
     if (root.tagName === 'A') neutralizeLink(root);
     else if (root.tagName === 'FORM') neutralizeForm(root);
     else if (root.tagName === 'META') neutralizeMeta(root);
+    else if (root.tagName === 'LINK') rerouteStylesheet(root);
     if (!root.querySelectorAll) return;
     Array.prototype.forEach.call(root.querySelectorAll('a[href]'), neutralizeLink);
     Array.prototype.forEach.call(root.querySelectorAll('form'), neutralizeForm);
     Array.prototype.forEach.call(root.querySelectorAll('meta[http-equiv]'), neutralizeMeta);
+    Array.prototype.forEach.call(root.querySelectorAll('link[rel]'), rerouteStylesheet);
   }
 
   neutralizeTree(document.documentElement);
@@ -160,7 +200,7 @@ const INSPECTOR_SCRIPT = `
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['href', 'action', 'target', 'http-equiv'],
+      attributeFilter: ['href', 'action', 'target', 'http-equiv', 'rel'],
     });
   } catch (e) {}
 
@@ -595,4 +635,107 @@ export async function getPageInfo(targetUrl: string): Promise<PageInfo> {
   } catch {
     return { title: targetUrl, url: targetUrl };
   }
+}
+
+// ---------------------------------------------------------------------------
+// プレビューが読む CSS とフォントの代理取得
+// ---------------------------------------------------------------------------
+//
+// ウェブフォントは CORS 必須で、サイト自身が配るフォントは別オリジン（プレビューの iframe）
+// から読めない。Inspector が <link rel="stylesheet"> を /api/proxy/asset へ向け直し、
+// ここで CSS 内のフォント URL も同じエンドポイント経由へ書き換えて返す。
+// 画像など CORS の要らないものは絶対 URL に直すだけで、BFF は通さない。
+
+export type ProxyAssetKind = 'css' | 'font';
+
+export interface ProxyAsset {
+  contentType: string;
+  body: Buffer | string;
+}
+
+const ASSET_TIMEOUT_MS = 12000;
+const CSS_MAX_BYTES = 4 * 1024 * 1024;
+// 日本語のフルセットフォントは 10MB を超えることがある
+const FONT_MAX_BYTES = 32 * 1024 * 1024;
+
+// url(...) は引用符あり・なしのどちらもある
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/gi;
+// @font-face の中括弧は入れ子にならない
+const FONT_FACE_BLOCK = /@font-face\s*\{[^}]*\}/gi;
+// @import url(...) と @import "..." の両方。後ろのメディア指定は触らない
+const CSS_IMPORT = /@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)|"([^"]*)"|'([^']*)')/gi;
+
+// CSS 内の参照を絶対 URL にする。data: などの埋め込みや http(s) 以外は触らない（null）
+function resolveCssUrl(ref: string, base: string): string | null {
+  const trimmed = ref.trim();
+  if (!trimmed) return null;
+  try {
+    const absolute = new URL(trimmed, base);
+    return absolute.protocol === 'http:' || absolute.protocol === 'https:' ? absolute.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * /api/proxy/asset への参照。書き換えた CSS の中に置くので、その CSS 自身の URL
+ * （.../proxy/asset?url=...）からの相対で書く。BFF は自分の公開 URL を知らないため。
+ */
+export function proxiedAssetRef(url: string, kind: ProxyAssetKind): string {
+  return `asset?url=${encodeURIComponent(url)}&kind=${kind}`;
+}
+
+/**
+ * BFF 経由で配る CSS の書き換え。
+ *  1. 相対 URL を元の CSS の場所基準で絶対にする（配信元が変わるので、そのままだと壊れる）
+ *  2. @font-face の中のフォントだけ BFF 経由にする（CORS を BFF 側で許可する）
+ *  3. @import 先の CSS も同じ書き換えを通す
+ */
+export function rewriteCss(css: string, cssUrl: string): string {
+  const absolutized = css.replace(CSS_URL, (whole, dq, sq, bare) => {
+    const absolute = resolveCssUrl(dq ?? sq ?? bare ?? '', cssUrl);
+    return absolute ? `url("${absolute}")` : whole;
+  });
+
+  const withFonts = absolutized.replace(FONT_FACE_BLOCK, (block) =>
+    block.replace(CSS_URL, (whole, dq, sq, bare) => {
+      const absolute = resolveCssUrl(dq ?? sq ?? bare ?? '', cssUrl);
+      return absolute ? `url("${proxiedAssetRef(absolute, 'font')}")` : whole;
+    })
+  );
+
+  return withFonts.replace(CSS_IMPORT, (whole, u1, u2, u3, s1, s2) => {
+    const absolute = resolveCssUrl(u1 ?? u2 ?? u3 ?? s1 ?? s2 ?? '', cssUrl);
+    return absolute ? `@import url("${proxiedAssetRef(absolute, 'css')}")` : whole;
+  });
+}
+
+// DryEyes のオリジンから配る以上、ブラウザが HTML や SVG として描画しうる型は返さない。
+// フォントらしい型だけ通し、それ以外はただのバイナリにする。
+const FONT_CONTENT_TYPE = /^(font\/|application\/(font-|x-font-|vnd\.ms-fontobject|octet-stream))/i;
+
+function fontContentType(upstream: unknown): string {
+  const value = String(upstream || '').split(';')[0].trim().toLowerCase();
+  return FONT_CONTENT_TYPE.test(value) ? value : 'application/octet-stream';
+}
+
+export async function fetchProxyAsset(targetUrl: string, kind: ProxyAssetKind): Promise<ProxyAsset> {
+  const response = await axios.get(targetUrl, {
+    headers: {
+      'User-Agent': RENDER_USER_AGENT,
+      Accept: kind === 'css' ? 'text/css,*/*;q=0.1' : '*/*',
+    },
+    responseType: 'arraybuffer',
+    timeout: ASSET_TIMEOUT_MS,
+    maxContentLength: kind === 'css' ? CSS_MAX_BYTES : FONT_MAX_BYTES,
+  });
+  const body = Buffer.from(response.data);
+
+  if (kind === 'font') {
+    return { contentType: fontContentType(response.headers?.['content-type']), body };
+  }
+
+  // リダイレクトされていたら、相対 URL の基準は最終的な置き場所
+  const cssUrl: string = response.request?.res?.responseUrl || targetUrl;
+  return { contentType: 'text/css; charset=utf-8', body: rewriteCss(body.toString('utf8'), cssUrl) };
 }

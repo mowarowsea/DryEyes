@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { fetchProxyPage, getPageInfo } from '../services/proxy.js';
+import { fetchProxyAsset, fetchProxyPage, getPageInfo } from '../services/proxy.js';
 import { getFavicon } from '../services/favicon.js';
 import { assertSafeProxyTarget } from '../services/urlSafety.js';
 import { escapeHtml } from '../services/htmlMeta.js';
@@ -53,6 +53,39 @@ proxyRouter.get('/favicon', async (req, res) => {
   res.setHeader('Content-Type', icon.contentType);
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(icon.data);
+});
+
+// プレビューのページが読む CSS とフォント。Inspector が <link rel="stylesheet"> をここへ向け直す。
+// ウェブフォントは CORS 必須で、監視先サイト自身が配るフォントは別オリジンのプレビューから
+// 読めない（アイコンフォントが「☒」になる）ため、BFF が代わりに取って CORS を許可して返す。
+// iframe から読まれるので /page と同じく認証は付けられず、宛先チェックで守る。
+proxyRouter.get('/asset', async (req, res) => {
+  const targetUrl = req.query.url as string;
+  const kind = req.query.kind === 'css' || req.query.kind === 'font' ? req.query.kind : null;
+  if (!targetUrl || !kind) {
+    return res.status(400).end();
+  }
+
+  try {
+    await assertSafeProxyTarget(targetUrl);
+  } catch {
+    return res.status(400).end();
+  }
+
+  try {
+    const asset = await fetchProxyAsset(targetUrl, kind);
+    res.setHeader('Content-Type', asset.contentType);
+    // 型は上で決めたものが全て。ブラウザに中身を嗅がせて HTML 扱いにさせない
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // プレビューの iframe は sandbox で独立オリジン (null) なので、フォントはこれが無いと読めない
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(asset.body);
+  } catch (err: any) {
+    // <link> の error イベントに落とす。Inspector が元の URL へ戻して従来どおり表示する
+    console.warn(`[picker] ${kind} の代理取得に失敗しました (${targetUrl}):`, err?.message);
+    res.status(502).end();
+  }
 });
 
 proxyRouter.get('/page', async (req, res) => {

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fetchProxyPage, getPageInfo, isLikelyClientRenderedShell } from '../proxy.js';
+import {
+  fetchProxyAsset,
+  fetchProxyPage,
+  getPageInfo,
+  isLikelyClientRenderedShell,
+  rewriteCss,
+} from '../proxy.js';
 import { renderPageHtml } from '../browserRender.js';
 import axios from 'axios';
 
@@ -112,7 +118,20 @@ describe('fetchProxyPage', () => {
     const result = await fetchProxyPage('https://example.com/');
 
     expect(result).toContain('MutationObserver');
-    expect(result).toContain("attributeFilter: ['href', 'action', 'target', 'http-equiv']");
+    expect(result).toContain("attributeFilter: ['href', 'action', 'target', 'http-equiv', 'rel']");
+  });
+
+  // サイト自身が配るウェブフォントは CORS で読めず、アイコンフォントが「☒」になる。
+  // CSS を BFF (/api/proxy/asset) 経由にして、フォントもそこから読ませる。
+  it('should route stylesheets through the BFF so the site own web fonts can load', async () => {
+    (axios.get as any).mockResolvedValueOnce({ data: '<html><head></head><body></body></html>' });
+
+    const result = await fetchProxyPage('https://example.com/');
+
+    expect(result).toContain("new URL('asset', location.href)");
+    expect(result).toContain("encodeURIComponent(absolute) + '&kind=css'");
+    // BFF で取れなかった CSS は元の URL へ戻して、従来どおり表示する
+    expect(result).toContain('data-dryeyes-css-direct');
   });
 
   // クリック以外の遷移経路（meta refresh・location 書き換え・JS 発火のクリック）も塞ぐ
@@ -332,5 +351,103 @@ describe('getPageInfo', () => {
       title: 'https://example.com/x',
       url: 'https://example.com/x',
     });
+  });
+});
+
+// ウェブフォントは CORS 必須で、サイト自身が配るフォントは別オリジンのプレビューから読めない。
+// CSS を BFF 経由にして、その中のフォント URL も BFF 経由へ書き換える。
+describe('rewriteCss', () => {
+  const CSS_URL = 'https://example.com/themes/css/main.css';
+
+  it('配信元が BFF に変わるので、相対 URL は元の CSS の場所基準で絶対にする', () => {
+    const css = '.hero { background: url(../img/hero.png) } .a { background: url("/img/a.png") }';
+    const out = rewriteCss(css, CSS_URL);
+    expect(out).toContain('url("https://example.com/themes/img/hero.png")');
+    expect(out).toContain('url("https://example.com/img/a.png")');
+  });
+
+  it('@font-face の中のフォントだけ BFF 経由にする', () => {
+    const css =
+      "@font-face{font-family:'FontAwesome';src:url('../fonts/fa.eot?#iefix') format('embedded-opentype')," +
+      "url('../fonts/fa.woff2?v=4.7') format('woff2')}" +
+      '.icon { background: url(../img/icon.png) }';
+    const out = rewriteCss(css, CSS_URL);
+    expect(out).toContain(
+      `url("asset?url=${encodeURIComponent('https://example.com/themes/fonts/fa.woff2?v=4.7')}&kind=font")`
+    );
+    expect(out).toContain(
+      `url("asset?url=${encodeURIComponent('https://example.com/themes/fonts/fa.eot?#iefix')}&kind=font")`
+    );
+    // 画像は CORS が要らないので BFF を通さない
+    expect(out).toContain('url("https://example.com/themes/img/icon.png")');
+    expect(out).not.toContain('icon.png&kind');
+  });
+
+  it('埋め込み (data:) は触らない', () => {
+    const css = '@font-face{font-family:x;src:url(data:font/woff2;base64,AAAA)} .b{background:url(data:image/png;base64,BBBB)}';
+    expect(rewriteCss(css, CSS_URL)).toBe(css);
+  });
+
+  it('@import 先の CSS も BFF 経由にして、メディア指定は残す', () => {
+    const css = '@import "fonts.css";\n@import url(../print.css) print;\nbody{}';
+    const out = rewriteCss(css, CSS_URL);
+    expect(out).toContain(
+      `@import url("asset?url=${encodeURIComponent('https://example.com/themes/css/fonts.css')}&kind=css");`
+    );
+    expect(out).toContain(
+      `@import url("asset?url=${encodeURIComponent('https://example.com/themes/print.css')}&kind=css") print;`
+    );
+  });
+});
+
+describe('fetchProxyAsset', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('CSS は書き換えて text/css で返す', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: Buffer.from('@font-face{src:url(fa.woff2)}'),
+      headers: { 'content-type': 'text/css' },
+    });
+
+    const asset = await fetchProxyAsset('https://example.com/css/fa.css', 'css');
+
+    expect(asset.contentType).toBe('text/css; charset=utf-8');
+    expect(asset.body).toContain(`asset?url=${encodeURIComponent('https://example.com/css/fa.woff2')}&kind=font`);
+  });
+
+  it('リダイレクトされた CSS は最終的な置き場所を基準にする', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: Buffer.from('.a{background:url(a.png)}'),
+      headers: {},
+      request: { res: { responseUrl: 'https://cdn.example.net/v2/main.css' } },
+    });
+
+    const asset = await fetchProxyAsset('https://example.com/main.css', 'css');
+
+    expect(asset.body).toContain('url("https://cdn.example.net/v2/a.png")');
+  });
+
+  it('フォントは相手の型のまま返す', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: Buffer.from('wOF2'),
+      headers: { 'content-type': 'font/woff2' },
+    });
+
+    const asset = await fetchProxyAsset('https://example.com/fa.woff2', 'font');
+
+    expect(asset.contentType).toBe('font/woff2');
+    expect(Buffer.isBuffer(asset.body)).toBe(true);
+  });
+
+  // DryEyes のオリジンから配るので、HTML や SVG として描画されうる型は絶対に返さない
+  it('フォントらしくない型はただのバイナリにする', async () => {
+    (axios.get as any).mockResolvedValueOnce({
+      data: Buffer.from('<svg/>'),
+      headers: { 'content-type': 'image/svg+xml' },
+    });
+
+    const asset = await fetchProxyAsset('https://example.com/fa.svg', 'font');
+
+    expect(asset.contentType).toBe('application/octet-stream');
   });
 });
