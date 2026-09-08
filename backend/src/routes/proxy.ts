@@ -7,6 +7,11 @@ import { requireAuth } from '../middleware/auth.js';
 
 export const proxyRouter = Router();
 
+// <script> の中へ埋めるための文字列リテラル。JSON.stringify で引用符とバックスラッシュは済むが、
+// 中身に </script> や <!-- が入っていると HTML の解析が切られるので、< も \u003c にしておく。
+export const jsStringLiteral = (value: string): string =>
+  JSON.stringify(value).replace(/</g, '\\u003c');
+
 // ページ情報だけは画面から fetch で呼ぶ（＝ Authorization を付けられる）ので、
 // ログイン必須にできる。プレビューとファビコンは iframe / <img> から読まれるため
 // ヘッダーを足せず、認証の代わりに宛先チェックで守る。
@@ -61,6 +66,7 @@ proxyRouter.get('/page', async (req, res) => {
 
   // エラーはこのページの中に文字として出す。URL も相手のエラーメッセージも
   // こちらで作った文字列ではないので、必ずエスケープしてから埋める。
+  // 同じ理由をピッカーへも postMessage で知らせる（ピッカーは自分の枠で出し直す）。
   const errorPage = (message: string): string => `
       <!DOCTYPE html>
       <html>
@@ -69,6 +75,7 @@ proxyRouter.get('/page', async (req, res) => {
           <h3>ページのプレビュー取得に失敗しました</h3>
           <p style="color: ${dark ? '#cbd5e1' : '#475569'}; font-size: 14px;">${escapeHtml(message)}</p>
           <p style="color: ${dark ? '#94a3b8' : '#64748b'}; font-size: 12px;">URLが正しいか、または外部からのアクセスが拒否されていないか確認してください。</p>
+          <script>try{window.parent.postMessage({type:'DRYEYES_PREVIEW_ERROR',message:${jsStringLiteral(message)}},'*');}catch(e){}</script>
         </body>
       </html>
     `;

@@ -15,6 +15,17 @@ import { startRedirectScanner } from './services/redirectScan.js';
 // 各監視のチェック間隔（最短でも分単位）に対して十分短く、かつ無駄打ちしすぎない値。
 const CLOUDFLARE_RETRY_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
+// 取りこぼした Promise の失敗で BFF ごと止まらないようにする。
+// Node は既定で unhandledRejection をそのまま例外にしてプロセスを終える。常駐している BFF が
+// 黙って居なくなると、画面は「プレビューが真っ白」「一覧が出ない」で止まり、原因が分からない。
+// 監督プロセスを置いていない構成なので、記録して動き続けるほうがまし（uncaughtException も同様）。
+process.on('unhandledRejection', (reason) => {
+  console.error('[DryEyes BFF] 処理されなかった Promise の失敗:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[DryEyes BFF] 捕捉されなかった例外:', err);
+});
+
 const app = express();
 
 // 画面は Vite（3010）越しに /api を叩くので、ブラウザから見れば同一オリジンになり

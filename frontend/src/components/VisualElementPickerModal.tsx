@@ -31,6 +31,15 @@ import { SiteTemplate } from '../siteTemplate';
 // 別ページに変わる」経路だけで、そこは注入した Inspector が受け持つ。
 const PREVIEW_SANDBOX = 'allow-scripts';
 
+// プレビューのページは <head> の先頭で DRYEYES_RENDER_MODE を postMessage して名乗る。
+// それが load の後もこれだけ待って届かなければ、iframe に入ったのは DryEyes のプレビューではない
+// （ブラウザのエラーページや、PWA の Service Worker が返したオフライン画面など）。
+// 名乗りは本来 load より先に並んでいるので、この待ちはほぼ保険。
+const PREVIEW_ANNOUNCE_GRACE_MS = 500;
+const PREVIEW_FAILURE_MESSAGE =
+  'サーバーから返事がありませんでした。DryEyes のサーバー（start.bat）が止まっていないか確認してください。' +
+  'ブラウザの拡張機能に止められている可能性もあります。';
+
 interface SelectedElementData {
   xpath: string;
   similarXPath: string;
@@ -104,6 +113,17 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   const [renderMode, setRenderMode] = useState<'static' | 'browser'>('static');
   // ブラウザ描画を頼んだのに素の HTML が返ってきた（ブラウザに繋げなかった）
   const [browserRenderFailed, setBrowserRenderFailed] = useState(false);
+  // プレビューが届かなかったときの理由。サーバーが止まっていると iframe には
+  // エラーページやオフライン画面が入って真っ白に見えるだけで、何が起きたか分からない。
+  // 読み込み後にプレビュー側の名乗りが無ければここに入れて知らせる。
+  const [previewFailure, setPreviewFailure] = useState<string | null>(null);
+  // いま表示中の iframe のページが、DryEyes の注入スクリプト付きだと名乗ってきたか
+  const previewAnnounced = useRef(false);
+  const failureTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearFailureTimer = () => {
+    if (failureTimer.current !== null) clearTimeout(failureTimer.current);
+    failureTimer.current = null;
+  };
   // プレビューするページも画面と同じテーマで出す。枠だけ暗くて中身が真っ白だと目に痛い。
   const isDark = useIsDarkTheme();
 
@@ -148,6 +168,13 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     setLoading(true);
   }, [isOpen, isDark]);
 
+  // iframe の読み込み先が変わる（テーマ・描画方法・再読み込み）たびに、名乗り待ちへ戻す
+  useEffect(() => {
+    previewAnnounced.current = false;
+    setPreviewFailure(null);
+    return clearFailureTimer;
+  }, [isOpen, targetUrl, isDark, renderMode, iframeKey]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleMessage = (event: MessageEvent) => {
@@ -163,11 +190,18 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         if (requestId !== undefined && requestId !== probeRequest.current) return;
         setProbe({ count: Number(event.data.count) || 0, texts: event.data.texts || [] });
       } else if (event.data.type === 'DRYEYES_RENDER_MODE') {
+        previewAnnounced.current = true;
+        setPreviewFailure(null);
         // 頼んだ描画と返ってきた描画が食い違ったら、押しても変わらない理由を出す
         setBrowserRenderFailed(event.data.mode === 'static' && renderMode === 'browser');
         // 静的 HTML が SPA のシェルだったときは、頼まなくてもサーバ側が描画へ切り替える。
         // 「もうちょっと頑張って描画する」を出したままにしないよう、実際の方法に合わせる。
         if (event.data.mode === 'browser') setRenderMode('browser');
+      } else if (event.data.type === 'DRYEYES_PREVIEW_ERROR') {
+        // BFF がページを取れなかった。理由は iframe の中にも書いてあるが、
+        // テーマや文字の大きさをピッカーと揃えるため、こちらの枠で出し直す。
+        previewAnnounced.current = true;
+        setPreviewFailure(String(event.data.message || '') || PREVIEW_FAILURE_MESSAGE);
       }
     };
     window.addEventListener('message', handleMessage);
@@ -184,6 +218,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   const reloadPreview = () => {
     setLoading(true);
+    setPreviewFailure(null);
     setSelectedElement(null);
     setProbe(null);
     setIframeKey((k) => k + 1);
@@ -281,9 +316,30 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             </div>
           )}
 
+          {/* プレビューが届かなかった。真っ白な枠のまま放置せず、理由と取り直しを出す。 */}
+          {!loading && previewFailure && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 text-center bg-white/95 dark:bg-slate-900/95">
+              <ShieldAlert className="w-8 h-8 mb-2 text-rose-500 dark:text-rose-400" />
+              <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                プレビューを取得できませんでした
+              </span>
+              <span className="mt-1.5 max-w-md text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                {previewFailure}
+              </span>
+              <button
+                type="button"
+                onClick={reloadPreview}
+                className="mt-4 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-sm font-bold rounded-xl shadow-sm transition flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>再読み込み</span>
+              </button>
+            </div>
+          )}
+
           {/* 素の HTML では出ない部分に気づいたとき用の逃げ道。
               重い描画は毎回やると 10 秒待たされるので、押されたときだけにする。 */}
-          {!loading && renderMode === 'static' && (
+          {!loading && !previewFailure && renderMode === 'static' && (
             <div className="absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
               <button
                 type="button"
@@ -312,6 +368,14 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
             src={proxyUrl}
             onLoad={() => {
               setLoading(false);
+              // 名乗りが無いままなら、届いたのはプレビューではなくエラーページやオフライン画面
+              clearFailureTimer();
+              if (!previewAnnounced.current) {
+                failureTimer.current = setTimeout(() => {
+                  failureTimer.current = null;
+                  if (!previewAnnounced.current) setPreviewFailure(PREVIEW_FAILURE_MESSAGE);
+                }, PREVIEW_ANNOUNCE_GRACE_MS);
+              }
               // テーマ切り替えなどで読み込み直したときに、選んでいた要素のハイライトを戻す
               if (selectedElement) {
                 const path =

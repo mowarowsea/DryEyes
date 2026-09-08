@@ -7,6 +7,8 @@
 const OFFLINE_CACHE = 'dryeyes-shell-v1';
 // 配信パス（ルート直下とは限らない。例: /DryEyes/）。
 const SHELL_URL = new URL('./', self.registration.scope).pathname;
+// BFF の API（配信パス配下の api/…）。ここへの応答をシェルで代用しても意味が無い。
+const API_PREFIX = SHELL_URL + 'api/';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -27,10 +29,24 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+function isApiRequest(url) {
+  try {
+    return new URL(url).pathname.startsWith(API_PREFIX);
+  } catch (e) {
+    return false;
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  // 画面遷移だけ面倒を見る。API や静的ファイルはブラウザ任せで十分。
-  if (request.mode !== 'navigate') return;
+  // 面倒を見るのは、タブに直接開く画面遷移だけ。API や静的ファイルはブラウザ任せで十分。
+  //
+  // iframe の読み込み（要素ピッカーのプレビュー）も mode は 'navigate' だが対象外にする。
+  // ここでシェルを返すと、サーバーが落ちているときにプレビュー枠へ DryEyes 自身の画面が入り、
+  // サンドボックスの中では描画できずにただ真っ白になる。ブラウザに任せればエラーページが入り、
+  // ピッカー側は「プレビューが届いていない」と気づいて理由を出せる。
+  if (request.mode !== 'navigate' || request.destination !== 'document') return;
+  if (isApiRequest(request.url)) return;
 
   event.respondWith(
     fetch(request).catch(async () => {
