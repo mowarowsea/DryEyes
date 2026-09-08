@@ -318,7 +318,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
           {/* プレビューが届かなかった。真っ白な枠のまま放置せず、理由と取り直しを出す。 */}
           {!loading && previewFailure && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 text-center bg-white/95 dark:bg-slate-900/95">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 text-center bg-white dark:bg-slate-900">
               <ShieldAlert className="w-8 h-8 mb-2 text-rose-500 dark:text-rose-400" />
               <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
                 プレビューを取得できませんでした
