@@ -18,6 +18,8 @@ const store = new JsonStore<FeedStoreData>('watch-feed.json', {
 const DEFAULT_CONFIG: FeedConfig = {
   // 登録しただけの監視が勝手に候補を溜めないよう、既定は無効にしておく
   enabled: false,
+  // 抽出の当たり外れを見てから任せる。最初は必ず人が確認する
+  autoSend: false,
   itemPattern: null,
   userId: null,
   destDir: null,

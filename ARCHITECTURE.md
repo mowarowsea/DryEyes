@@ -250,9 +250,8 @@ XPath 配下の `<a>` から取る**。`hasAnySelectorMatch()` と同じ仕組�
 | `services/powerdowner.ts` | PowerDowner への POST と、応答を sourceKey ごとの説明に畳む | 済 |
 | `services/feedSend.ts` | 監視ごとにまとめ、上限で分割して送り、結果を候補に書き戻す | 済 |
 | `routes/feed.ts` | 候補の一覧・見送り・投入、設定の取得と更新、スキャンの実行 | 済 |
+| `services/feedAutoScan.ts` | 30 分ごとの取り込みと、`autoSend` が立っている監視の自動投入 | 済 |
 | `components/FeedModal.tsx` | 設定・取り込み・候補の確認を 1 画面に並べたモーダル | 済 |
-| 定期スキャン | `redirectScan.ts` と同じ形の周期ジョブ | **未** (今は画面から手で叩く) |
-| 自動投入 | 確認なしで送る | **未** (抽出の当たり外れを見てから) |
 
 API:
 
@@ -260,16 +259,28 @@ API:
 GET    /api/feed/candidates?status=pending      候補一覧 (自分が持つ監視のものだけ)
 POST   /api/feed/candidates/:id/dismiss         見送る
 POST   /api/feed/candidates/send                選んだ候補を PowerDowner へ送る
+POST   /api/feed/candidates/have                選んだ候補を「所持済み」として向こうの台帳へ登録する
 GET    /api/feed/watches/:watchId               投入設定
 PUT    /api/feed/watches/:watchId               投入設定の更新 (enabled / itemPattern / userId / destDir)
-POST   /api/feed/watches/:watchId/scan          増分から候補を作る
+POST   /api/feed/watches/:watchId/scan          増分から候補を作る ({ all: true } でページ全体)
 ```
 
 ### 承認フローと投入ポインタ
 
-**当面は自動投入しない。** 抽出結果を「投入候補」として溜め、画面で確認して押したものだけ
-POST する。抽出ルール（URL・作者・巻数）の当たり外れを見てから自動へ切り替える。
-投入に失敗しても押し直せばいいので、リトライ機構は要らない。
+**2 段構えで進む。**
+
+1. 登録直後は「全件を洗い出す」でページに並んでいるものを丸ごと候補にする。
+   PowerDowner に問い合わせて「もう持っているか」を各候補に添えるので、
+   **どれが既にあって・どれを今回落とすか**をその場で決められる。
+   既にあるものは「所持済みにする」で向こうの台帳へ送っておくと、以後は弾かれる
+2. 決まったら `autoSend` を立てる。次の更新分からは 30 分ごとの巡回
+   (`feedAutoScan.ts`) が増分を取り込んで自動で投入する
+
+「候補を作る (`enabled`)」と「確認なしで送る (`autoSend`)」を別の設定にしてあるのは、
+取り込みだけ回して溜め、抽出ルール（URL・作者・巻数）の当たり外れを見てから任せる、
+という順に進められるようにするため。
+
+投入に失敗した候補は `pending` のまま残る。次の巡回が拾い直すので、リトライ機構は要らない。
 
 - **既読フラグ（`viewState.ts`）を流用しないこと。** 「候補に積んだら既読になって人が気づかない」
   「人が先に見たら候補に積まれない」のどちらかで必ず事故る。専用のポインタを別に持つ

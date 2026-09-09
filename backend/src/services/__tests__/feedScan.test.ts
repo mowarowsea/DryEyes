@@ -137,6 +137,55 @@ describe('scanWatchForFeed', () => {
     expect(result.addedLines).toBe(1);
   });
 
+  it('should collect the whole page when asked, without looking at the diff', async () => {
+    // 登録直後の洗い出し。増分を待たずに「何があるか」を一度で出したい
+    setFeedConfig('s9', { enabled: true });
+    const extract = extractOf([
+      { text: '[著者] 作品名 第01巻', urls: ['https://a.example/1'] },
+      { text: '[著者] 作品名 第02巻', urls: ['https://a.example/2'] },
+    ]);
+    const result = await scanWatchForFeed(
+      watchOf('s9'),
+      { source: sourceOf({ 100: '[著者] 作品名 第01巻' }), extract },
+      { mode: 'all' }
+    );
+
+    expect(result.status).toBe('collected');
+    expect(result.added).toBe(2);
+    expect(listCandidates({ watchId: 's9' })).toHaveLength(2);
+    // 次からは増分だけを見られるよう、ポインタも進める
+    expect(getPointer('s9')?.snapshotTimestamp).toBe(100);
+  });
+
+  it('should not duplicate candidates already collected', async () => {
+    setFeedConfig('s10', { enabled: true });
+    const items = [{ text: '[著者] 作品名 第01巻', urls: ['https://a.example/1'] }];
+    const deps = { source: sourceOf({ 100: 'x' }), extract: extractOf(items) };
+
+    await scanWatchForFeed(watchOf('s10'), deps, { mode: 'all' });
+    const again = await scanWatchForFeed(watchOf('s10'), deps, { mode: 'all' });
+
+    expect(again.added).toBe(0);
+    expect(listCandidates({ watchId: 's10' })).toHaveLength(1);
+  });
+
+  it('should skip elements without links even in collect mode', async () => {
+    setFeedConfig('s11', { enabled: true });
+    const result = await scanWatchForFeed(
+      watchOf('s11'),
+      {
+        source: sourceOf({ 100: 'x' }),
+        extract: extractOf([
+          { text: '[著者] 作品名 第01巻', urls: [] },
+          { text: '[著者] 作品名 第02巻', urls: ['https://a.example/2'] },
+        ]),
+      },
+      { mode: 'all' }
+    );
+    expect(result.added).toBe(1);
+    expect(result.extracted).toBe(2);
+  });
+
   it('should keep rawText when no pattern is configured', async () => {
     setFeedConfig('s8', { enabled: true });
     await scanWatchForFeed(watchOf('s8'), { source: sourceOf({ 100: '古い行' }), extract: extractOf([]) });

@@ -16,6 +16,17 @@ import { FeedScanResult, WatchModel } from '../types/index.js';
  * スナップショットには href が残らないので、この二段構えが要る (ARCHITECTURE.md 5 章)。
  */
 
+/** リンクを持たない要素は投入しようがないので落とす */
+function toEntries(items: ExtractedItem[], itemPattern: string | null) {
+  return items
+    .filter((item) => item.urls.length > 0)
+    .map((item) => ({
+      text: item.text,
+      urls: item.urls,
+      meta: applyPattern(item.text, itemPattern),
+    }));
+}
+
 export interface FeedScanDeps {
   source: SnapshotSource;
   extract: (url: string, selectors: string[]) => Promise<ExtractedItem[]>;
@@ -26,9 +37,19 @@ const defaultDeps: FeedScanDeps = {
   extract: extractItems,
 };
 
+export interface FeedScanOptions {
+  /**
+   * 'all' は差分を見ずにページ全体を候補にする。
+   * 監視を登録した直後の洗い出し用 — 何が既にあって何を落とすかを、
+   * 増分を待たずに一度で決めたいときに使う。
+   */
+  mode?: 'increment' | 'all';
+}
+
 export async function scanWatchForFeed(
   watch: WatchModel,
-  deps: FeedScanDeps = defaultDeps
+  deps: FeedScanDeps = defaultDeps,
+  options: FeedScanOptions = {}
 ): Promise<FeedScanResult> {
   const config = getFeedConfig(watch.id);
   if (!config.enabled) return { watchId: watch.id, status: 'disabled', added: 0 };
@@ -40,10 +61,25 @@ export async function scanWatchForFeed(
   const latest = history[0];
   if (!latest) return { watchId: watch.id, status: 'unchanged', added: 0 };
 
+  // 全件モードは差分を見ない。ページに並んでいるものを丸ごと候補にして、
+  // どれが既にあるか・どれを落とすかを人に選ばせる
+  if (options.mode === 'all') {
+    const items = await deps.extract(watch.url, selectors);
+    const added = addCandidates(watch.id, toEntries(items, config.itemPattern));
+    setPointer(watch.id, latest.timestamp);
+    return {
+      watchId: watch.id,
+      status: 'collected',
+      added: added.length,
+      extracted: items.length,
+    };
+  }
+
   const pointer = getPointer(watch.id);
 
   // 初回は候補を作らない。登録した時点でページに並んでいるものは「新着」ではないので、
   // ここで全部を候補にすると、既に持っている巻がまとめて出てくる
+  // (洗い出したいときは上の全件モードを使う)
   if (!pointer) {
     setPointer(watch.id, latest.timestamp);
     return { watchId: watch.id, status: 'initialized', added: 0 };
@@ -67,16 +103,7 @@ export async function scanWatchForFeed(
   const items = await deps.extract(watch.url, selectors);
   const matched = selectAddedItems(items, addedLines);
 
-  const added = addCandidates(
-    watch.id,
-    matched
-      .filter((item) => item.urls.length > 0)
-      .map((item) => ({
-        text: item.text,
-        urls: item.urls,
-        meta: applyPattern(item.text, config.itemPattern),
-      }))
-  );
+  const added = addCandidates(watch.id, toEntries(matched, config.itemPattern));
 
   setPointer(watch.id, latest.timestamp);
   return {

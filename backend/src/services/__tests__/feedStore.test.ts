@@ -24,7 +24,7 @@ const item = (rawText: string, urls = ['https://a.example/3']) => ({ text: rawTe
 describe('feed config', () => {
   it('should default to disabled so a new watch never feeds on its own', () => {
     expect(getFeedConfig('w-new')).toEqual({
-      enabled: false, itemPattern: null, userId: null, destDir: null,
+      enabled: false, autoSend: false, itemPattern: null, userId: null, destDir: null,
     });
   });
 

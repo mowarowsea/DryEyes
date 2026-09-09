@@ -233,8 +233,22 @@ export interface FeedCandidate {
   resultNote?: string | null;
 }
 
+/**
+ * 候補に「PowerDowner から見た状態」を添えたもの。
+ * 向こうの台帳は動くので保存せず、一覧を出すたびに聞き直す。
+ * 聞けなかった (PowerDowner が落ちている) ときは null。
+ */
+export interface FeedCandidateWithState extends FeedCandidate {
+  powerdowner: {
+    state: 'new' | 'skip' | 'merge';
+    reason: string | null;
+  } | null;
+}
+
 export interface FeedConfig {
   enabled: boolean;
+  /** 次の更新分から、人の確認なしで投入する */
+  autoSend: boolean;
   itemPattern: string | null;
   userId: number | null;
   destDir: string | null;
@@ -242,7 +256,7 @@ export interface FeedConfig {
 
 export interface FeedScanResult {
   watchId: string;
-  status: 'disabled' | 'no-selector' | 'initialized' | 'unchanged' | 'scanned';
+  status: 'disabled' | 'no-selector' | 'initialized' | 'unchanged' | 'scanned' | 'collected';
   added: number;
   addedLines?: number;
   extracted?: number;

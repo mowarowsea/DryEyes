@@ -15,6 +15,7 @@ import {
   DuplicateWatch,
   HistoryDiff,
   FeedCandidate,
+  FeedCandidateWithState,
   FeedConfig,
   FeedScanResult,
   FeedSendSummary,
@@ -308,7 +309,7 @@ export const api = {
   async listFeedCandidates(
     status: FeedCandidate['status'] = 'pending',
     watchId?: string
-  ): Promise<FeedCandidate[]> {
+  ): Promise<FeedCandidateWithState[]> {
     const query = new URLSearchParams({ status });
     if (watchId) query.set('watchId', watchId);
     const res = await request(`/feed/candidates?${query.toString()}`);
@@ -349,9 +350,23 @@ export const api = {
     return res.json();
   },
 
-  // 増分から候補を作る。初回は候補を作らず、どこまで見たかだけ記録する
-  async scanFeed(watchId: string): Promise<FeedScanResult> {
-    const res = await request(`/feed/watches/${watchId}/scan`, { method: 'POST' });
+  // 「これは既に持っている」を PowerDowner の台帳へ登録し、候補から外す
+  async markFeedCandidatesHave(ids: string[]): Promise<{ registered: number; skipped: number; dismissed: number }> {
+    const res = await request('/feed/candidates/have', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '所持の登録に失敗しました'));
+    return res.json();
+  },
+
+  // 増分から候補を作る。初回は候補を作らず、どこまで見たかだけ記録する。
+  // all を立てると差分を見ずにページ全体を候補にする (登録直後の洗い出し)
+  async scanFeed(watchId: string, all = false): Promise<FeedScanResult> {
+    const res = await request(`/feed/watches/${watchId}/scan`, {
+      method: 'POST',
+      body: JSON.stringify({ all }),
+    });
     if (!res.ok) throw new Error(await errorMessage(res, '候補の作成に失敗しました'));
     return res.json();
   },

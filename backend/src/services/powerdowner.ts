@@ -34,8 +34,13 @@ export async function sendItems(input: {
     })),
   };
 
+  return post<SendItemsResponse>('/api/jobs', body, '投入を受け付けませんでした');
+}
+
+/** 投入・判定・所持登録で共通の POST。接続不能とトークン違いは原因が分かる文言にする */
+async function post<T>(path: string, body: unknown, failure: string): Promise<T> {
   try {
-    const res = await client.post<SendItemsResponse>(`${config.powerdowner.baseUrl}/api/jobs`, body, {
+    const res = await client.post<T>(`${config.powerdowner.baseUrl}${path}`, body, {
       headers: {
         'Content-Type': 'application/json',
         ...(config.powerdowner.token ? { Authorization: `Bearer ${config.powerdowner.token}` } : {}),
@@ -51,8 +56,45 @@ export async function sendItems(input: {
     if (!status) {
       throw new Error(`PowerDowner に接続できません (${config.powerdowner.baseUrl}): ${message}`);
     }
-    throw new Error(`PowerDowner が投入を受け付けませんでした (${status}): ${message}`);
+    throw new Error(`PowerDowner が${failure} (${status}): ${message}`);
   }
+}
+
+/** POST /api/items/check の 1 件分。投入せずに「もう持っているか」だけを調べた結果 */
+export interface CheckResult {
+  sourceKey: string | null;
+  /** new: 未取得 / skip: 既に持っている / merge: ダウンロード中のものがある */
+  state: 'new' | 'skip' | 'merge';
+  reason: string | null;
+  seriesKey: string;
+  volumeFrom: number | null;
+  volumeTo: number | null;
+}
+
+/**
+ * 候補が既に手元にあるかを調べる。投入はしない。
+ *
+ * 結果を DryEyes 側に保存しないのは、向こうの台帳が動くため
+ * (別経路で落ちる・所持登録が増える)。見せるたびに聞き直す。
+ */
+export async function checkItems(candidates: FeedCandidate[]): Promise<CheckResult[]> {
+  if (candidates.length === 0) return [];
+  const body = {
+    items: candidates.map((c) => ({
+      urls: c.urls,
+      sourceKey: c.sourceKey,
+      meta: c.meta,
+    })),
+  };
+  const res = await post<{ results: CheckResult[] }>('/api/items/check', body, '所持の判定に失敗しました');
+  return res.results ?? [];
+}
+
+/** 「これは既に持っている」を PowerDowner の台帳へ登録する */
+export async function registerHave(
+  items: { title: string | null; author: string | null; volumes: string | null }[]
+): Promise<{ created: unknown[]; skipped: number }> {
+  return post('/api/items', { items }, '所持の登録に失敗しました');
 }
 
 /**

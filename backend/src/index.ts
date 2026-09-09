@@ -11,6 +11,7 @@ import { publicWatchesRouter } from './routes/publicFavicon.js';
 import { changedetectionClient } from './services/changedetection.js';
 import { buildWatchClickUrl, buildWatchFaviconUrl } from './services/ntfyTopic.js';
 import { startRedirectScanner } from './services/redirectScan.js';
+import { startFeedScanner } from './services/feedAutoScan.js';
 
 // Cloudflare 由来の 403 を検知したら User-Agent を差し替えて再チェックするジョブの実行間隔。
 // 各監視のチェック間隔（最短でも分単位）に対して十分短く、かつ無駄打ちしすぎない値。
@@ -103,4 +104,5 @@ app.listen(config.port, async () => {
   // 監視対象が別ドメインへ移転していないかを定期的に確かめる。
   // 見つけても URL は勝手に変えず、画面で確認してもらう（承認済みの行き先だけ自動で追従する）。
   startRedirectScanner();
+  startFeedScanner();
 });
