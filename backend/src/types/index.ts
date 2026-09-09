@@ -285,3 +285,76 @@ export interface SaveCardImageDto {
   dataUrl?: string; // mode: 'upload'（data: URL 形式の画像）
   crop?: CardImageCrop | null;
 }
+
+// ---------------------------------------------------------------------------
+// PowerDowner への投入候補 (ARCHITECTURE.md 5 章)
+// ---------------------------------------------------------------------------
+
+/** 監視ページの増分から取り出した 1 件。urls は同一ファイルのミラー */
+export interface FeedCandidate {
+  id: string;
+  watchId: string;
+  /** 同じ行を二度候補にしないためのキー。<watchId>:<テキストのハッシュ> */
+  sourceKey: string;
+  /** 抽出元の要素テキスト (正規化済み) */
+  text: string;
+  urls: string[];
+  meta: {
+    title: string | null;
+    author: string | null;
+    volume: string | null;
+    rawText: string;
+  };
+  foundAt: string;
+  status: 'pending' | 'sent' | 'dismissed';
+  sentAt?: string | null;
+  /** 投入したときの PowerDowner の返答 (スキップ・合流もここに残す) */
+  resultNote?: string | null;
+}
+
+/** 監視ごとの投入設定。changedetection.io は任意フィールドを持てないので DryEyes 側で持つ */
+export interface FeedConfig {
+  /** 候補を作るか。既定は false — 登録しただけの監視が勝手に候補を溜めないようにする */
+  enabled: boolean;
+  /**
+   * メタを取り出す正規表現。名前付きキャプチャ (?<author>) (?<title>) (?<volume>) が
+   * そのまま PowerDowner へ渡るフィールドになる。null なら rawText だけを送る。
+   */
+  itemPattern: string | null;
+  /** PowerDowner 側のユーザー */
+  userId: number | null;
+  /** 保存先。null なら PowerDowner のユーザー既定フォルダ */
+  destDir: string | null;
+}
+
+/**
+ * どのスナップショットまで候補化したか。
+ * 既読 (WatchViewState) とは別に持つ — 同じフラグを使うと「候補に積んだら既読になって
+ * 人が気づかない」「人が先に見たら候補に積まれない」のどちらかで必ず事故る。
+ */
+export interface FeedPointer {
+  snapshotTimestamp: number;
+  scannedAt: string;
+}
+
+export interface FeedStoreData {
+  candidates: Record<string, FeedCandidate>;
+  configs: Record<string, FeedConfig>;
+  pointers: Record<string, FeedPointer>;
+}
+
+/** 1 監視ぶんのスキャン結果 */
+export interface FeedScanResult {
+  watchId: string;
+  status:
+    | 'disabled'      // 投入設定が無効
+    | 'no-selector'   // ページ全体を見ている監視。どこを 1 件とみなすか決まらない
+    | 'initialized'   // 初回。登録時点の内容を候補にしないため、ポインタだけ置いた
+    | 'unchanged'     // 前回スキャンから増分なし
+    | 'scanned';
+  /** 積んだ候補の数 */
+  added: number;
+  /** 差分の増えた行数と、実ページから取れた要素数 (当たり外れの手がかり) */
+  addedLines?: number;
+  extracted?: number;
+}

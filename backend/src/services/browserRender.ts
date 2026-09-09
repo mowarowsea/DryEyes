@@ -153,6 +153,19 @@ export async function hasAnySelectorMatch(targetUrl: string, selectors: string[]
     });
   })()`;
 
+  return Boolean(await evaluateOnPage<boolean>(targetUrl, script));
+}
+
+/**
+ * クロールと同じ条件でページを開き、渡したスクリプトを評価して結果を返す。
+ *
+ * 接続・遅延読み込みの起こし方・後始末はどの用途でも同じなので、ここにまとめる。
+ * (renderPageHtml だけは配色の指定とスナップショットのキャッシュがあるため別に持っている)
+ *
+ * script は文字列で渡す。BFF の tsconfig には DOM の型が無いため、
+ * ブラウザ側で動くコードを関数として書けない。
+ */
+export async function evaluateOnPage<T>(targetUrl: string, script: string): Promise<T> {
   let browser: Browser | null = null;
   try {
     browser = await chromium.connectOverCDP(config.browser.wsUrl, { timeout: CONNECT_TIMEOUT_MS });
@@ -174,9 +187,9 @@ export async function hasAnySelectorMatch(targetUrl: string, selectors: string[]
     await page.evaluate(LAZY_LOAD_SCROLL_JS);
     await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined);
 
-    const found = await page.evaluate<boolean>(script);
+    const result = await page.evaluate<T>(script);
     await context.close().catch(() => undefined);
-    return Boolean(found);
+    return result;
   } finally {
     await browser?.close().catch(() => undefined);
   }

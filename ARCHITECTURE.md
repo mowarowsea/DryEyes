@@ -84,6 +84,7 @@ DryEyes は、Webクローリング・ブラウザ操作・差分検出などの
     差分の全文は通知タップ先の DryEyes 側で確認する。
 - **原則**:
   - 将来的に監視エンジンを別システムに置き換える際も、BFF の Adapter を差し替えるだけで UI に影響を与えない境界分離を維持する。
+  - **新着から取り出したものを選別しない**（下の 5）。何が落とせるかの判断は PowerDowner 側に置く。
 
 ### 2.3 changedetection.io + sockpuppetbrowser (監視エンジンレイヤー)
 - **責務**:
@@ -112,8 +113,9 @@ DryEyes/
 │       ├── config.ts        # 環境変数定義
 │       ├── types/           # 型定義
 │       ├── middleware/      # 認証ミドルウェア (Bearer トークン検証)
-│       ├── routes/          # API エンドポイント (auth, watches, health, proxy)
+│       ├── routes/          # API エンドポイント (auth, watches, health, proxy, feed)
 │       ├── services/        # changedetection クライアント / ユーザー / 所有者 / 既読 / 差分計算
+│       │                    #  + 投入候補 (feedScan / feedMatch / feedStore / itemExtract)
 │       │   └── __tests__/   # BFF 単体テスト
 │       └── data/            # ユーザー・セッション・所有者・既読状態の永続化 (gitignore)
 │
@@ -137,3 +139,145 @@ DryEyes/
 
 - **changedetection.io**: WSL2 Docker 上でバックグラウンド常駐（定期監視・Cron を維持）。
 - **DryEyes アプリ**: UI/BFF の開発時や閲覧時に高速起動。
+
+---
+
+## 5. PowerDowner 連携
+
+`C:\Users\seamo\PowerDowner`（ダウンロード司令塔）。詳細な設計は
+[PowerDowner/docs/ROADMAP.md](../PowerDowner/docs/ROADMAP.md) の 2 章にある。ここでは境界だけを示す。
+
+監視で見つけた新着（アップローダへのリンク）を PowerDowner に渡して落とさせる。
+
+### 責務の境界
+
+**「相手には原理的に持てない情報」で切る。**
+
+| | 持っている情報 | 持てない情報 |
+|---|---|---|
+| DryEyes | 前回スナップショット、既読位置、XPath、監視の文脈 | どのホスターなら落とせるか |
+| PowerDowner | ホスター実績表、エンジン振り分け、リトライ、取得済み台帳 | そのページで何が「新しい」のか |
+
+```
+DryEyes                                        │  PowerDowner
+定期チェック → 差分 → 増分の要素を特定          │
+  → その要素配下の <a href> を全部拾う          │
+  → 1 件 = { メタ, urls[] } に束ねて候補に積む  │
+  → 人が承認 ─── POST /api/jobs ─────────────▶ │ 選別・優先度付け → 台帳と突き合わせ
+                                               │  → ダウンロード → リネーム → 通知
+```
+
+- **DryEyes はリンクらしきものを全部渡すだけで、選別しない。** ホスターの知識をこちらに
+  複製すると PowerDowner の実績表と二重管理になる
+- **「同じファイルか」「もう持っているか」の判断は持ち込まない。** 別サイトの監視で同じ巻が
+  出た時の重複判定は PowerDowner の台帳が行う。こちらで止めると、投入したが
+  ダウンロードに失敗していたケースで二度と落ちてこなくなる
+- 渡すのは `title` / `author` / `volume` と、**抽出前の生テキスト `rawText`**。
+  抽出ルールは必ずどこかで外れるので、生テキストが残っていれば後から直せる
+
+### PowerDowner の投入 API (実装済み)
+
+PowerDowner 側は受け入れ準備が済んでいる。BFF が叩くのはこの 1 本だけ。
+
+```
+POST http://<powerdowner>/api/jobs
+Authorization: Bearer <共有トークン>
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "destDir": "省略可。省略するとユーザーの既定フォルダ",
+  "items": [
+    {
+      "urls": ["https://mexa.sh/...", "https://dailyuploads.net/..."],
+      "sourceKey": "<watch-uuid>:<行のハッシュ>",
+      "source": "dryeyes:<watch-uuid>",
+      "meta": {
+        "title": "作品名",
+        "author": "著者",
+        "volume": "3",
+        "rawText": "[著者] 作品名 第03巻"
+      }
+    }
+  ]
+}
+```
+
+応答は `201` で、1 件ごとの処理結果が返る:
+
+```json
+{
+  "created":   [ { "id": "3f2a1b9c", "url": "...", "meta": { "mirrors": [...] } } ],
+  "merged":    [ { "jobId": "...", "title": "...", "urls": [...] } ],
+  "skipped":   [ { "title": "...", "reason": "所持済み (第1-6巻)" } ],
+  "invalid":   [ { "title": "...", "reason": "有効な URL がありません (http/https のみ)" } ],
+  "truncated": 0
+}
+```
+
+BFF 側で押さえておくこと:
+
+- **`skipped` はエラーではない。** 取得済みの巻は落とさないのが正しい動作なので、
+  全件スキップでも `201` が返る。画面には「既に持っているので飛ばした」と出す
+- **`merged` はジョブが増えない。** 別サイトの同じ巻が既存ジョブのミラー候補に合流した状態。
+  これも成功として扱う
+- **`truncated` が 0 でなければ切り捨てられている。** 1 リクエスト 20 件が上限。
+  残りは次の投入に回す
+- `401` はトークン不一致、`400` は `userId` が無い / `items` が空 / 保存先が決まらない
+- **同じものを二度送らない責任は DryEyes 側にある。** PowerDowner の台帳は「同じ巻か」を
+  作品名と巻数で見るが、巻数を読めない監視 (雑誌・読切) では判定に参加できず素通りする
+
+### 差分テキストから URL は取れない
+
+`changedetection.io` のスナップショットはテキストなので、**増えた行が分かっても href は残らない**。
+グローバル設定 `render_anchor_tag_content` を有効にすれば URL 混じりのテキストになるが、
+全監視の差分が汚れて人が読めなくなるので採らない。
+
+差分は「どの行が増えたか」の検知だけに使い、**URL は `browserRender.ts` で実ページを開いて
+XPath 配下の `<a>` から取る**。`hasAnySelectorMatch()` と同じ仕組みで書ける。
+
+### 実装状況
+
+| 部品 | 役割 | 状態 |
+|---|---|---|
+| `services/itemExtract.ts` | 実ページを開いて、セレクタに当たった要素とその配下のリンクを取る | 済 |
+| `services/feedMatch.ts` | 増分と要素の突き合わせ、正規表現によるメタ抽出 | 済 |
+| `services/feedStore.ts` | 候補・監視ごとの設定・投入ポインタ (`watch-feed.json`) | 済 |
+| `services/feedScan.ts` | 上の 3 つを繋ぐ。差分 → 抽出 → 候補 | 済 |
+| `routes/feed.ts` | 候補の一覧・見送り、設定の取得と更新、スキャンの実行 | 済 |
+| 候補一覧の UI と投入ボタン | 人が確認して PowerDowner へ送る | **未** |
+| 定期スキャン | `redirectScan.ts` と同じ形の周期ジョブ | **未** (今は手で叩く) |
+
+API:
+
+```
+GET    /api/feed/candidates?status=pending      候補一覧 (自分が持つ監視のものだけ)
+POST   /api/feed/candidates/:id/dismiss         見送る
+GET    /api/feed/watches/:watchId               投入設定
+PUT    /api/feed/watches/:watchId               投入設定の更新 (enabled / itemPattern / userId / destDir)
+POST   /api/feed/watches/:watchId/scan          増分から候補を作る
+```
+
+### 承認フローと投入ポインタ
+
+**当面は自動投入しない。** 抽出結果を「投入候補」として溜め、画面で確認して押したものだけ
+POST する。抽出ルール（URL・作者・巻数）の当たり外れを見てから自動へ切り替える。
+投入に失敗しても押し直せばいいので、リトライ機構は要らない。
+
+- **既読フラグ（`viewState.ts`）を流用しないこと。** 「候補に積んだら既読になって人が気づかない」
+  「人が先に見たら候補に積まれない」のどちらかで必ず事故る。専用のポインタを別に持つ
+- 監視ごとに「自動 / 確認してから」を持たせ、安定したものから昇格させる
+- **巻数の取れない監視（雑誌・読切）は自動にしない。** PowerDowner 側の重複判定に参加できず、
+  毎回落ちてしまう
+- 一度の投入は 20 件で打ち切る。監視を作り直して全増分が新規に見えた時の安全弁
+
+### 通知
+
+**PowerDowner と二重に出さないこと。** 「新着が出た」「候補が溜まった」は既存の ntfy 通知で
+DryEyes の担当。ジョブの完了・人間待ち・失敗は PowerDowner が自分で出す。
+
+### 認証
+
+PowerDowner は `host: 0.0.0.0` で認証を持たないため、投入口には共有トークンを 1 本置く。
+BFF は `Authorization: Bearer` を付けて POST する。トークンは BFF の環境変数に持ち、
+フロントには渡さない（フロントは BFF の投入 API を叩くだけ）。

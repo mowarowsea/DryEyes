@@ -33,6 +33,7 @@ import {
 } from '../services/cardImage.js';
 import { assertSafeProxyTarget } from '../services/urlSafety.js';
 import { requireAuth } from '../middleware/auth.js';
+import { clearFeedState, pruneFeedState } from '../services/feedStore.js';
 import {
   CreateWatchDto,
   RedirectDecisionOptions,
@@ -81,6 +82,7 @@ watchesRouter.get('/', async (req, res) => {
     pruneMissing(watches.map((w) => w.id));
     pruneViewStates(watches.map((w) => w.id));
     pruneRedirectState(watches.map((w) => w.id));
+    pruneFeedState(watches.map((w) => w.id));
     res.json(
       watches.filter((w) => isOwnedBy(w.id, req.user!.id)).map((w) => withViewState(w, req.user!.id))
     );
@@ -197,6 +199,7 @@ watchesRouter.delete('/:id', async (req, res) => {
     clearViewStates(req.params.id);
     clearRedirectState(req.params.id);
     clearCardImage(req.params.id);
+    clearFeedState(req.params.id);
     res.status(204).send();
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to delete watch', message: err.message });

@@ -6,6 +6,7 @@ import { authRouter } from './routes/auth.js';
 import { usersRouter } from './routes/users.js';
 import { watchesRouter } from './routes/watches.js';
 import { proxyRouter } from './routes/proxy.js';
+import { feedRouter } from './routes/feed.js';
 import { publicWatchesRouter } from './routes/publicFavicon.js';
 import { changedetectionClient } from './services/changedetection.js';
 import { buildWatchClickUrl, buildWatchFaviconUrl } from './services/ntfyTopic.js';
@@ -64,6 +65,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/watches', watchesRouter);
 app.use('/api/proxy', proxyRouter);
+app.use('/api/feed', feedRouter);
 // ntfy のクライアントが通知アイコンを取りに来る公開エンドポイント（認証なし）
 app.use('/api/public/watches', publicWatchesRouter);
 
