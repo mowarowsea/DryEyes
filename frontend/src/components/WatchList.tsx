@@ -3,8 +3,11 @@ import { EyeOff, Layers } from 'lucide-react';
 import { WatchModel } from '../types';
 import { WatchCard } from './WatchCard';
 import { FilterTab, ListToolbar } from './ListToolbar';
+import { ListModeTabs } from './ListModeTabs';
+import { WorkGroupCard } from './WorkGroupCard';
 import { isUnviewed } from '../watchStatus';
 import { SortOrder, getStoredSort, sortWatches, storeSort } from '../listSort';
+import { ListMode, getStoredMode, groupByWork, modeOf, storeMode } from '../watchGroup';
 
 interface WatchListProps {
   watches: WatchModel[];
@@ -50,6 +53,7 @@ export const WatchList: React.FC<WatchListProps> = ({
   onOpenCreateModal,
 }) => {
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [mode, setMode] = useState<ListMode>(() => getStoredMode());
   const [sort, setSort] = useState<SortOrder>(() => getStoredSort());
 
   const handleChangeSort = (next: SortOrder) => {
@@ -57,14 +61,28 @@ export const WatchList: React.FC<WatchListProps> = ({
     storeSort(next);
   };
 
+  const handleChangeMode = (next: ListMode) => {
+    setMode(next);
+    storeMode(next);
+  };
+
   // 登録直後の監視は未読でもエラーでもないため、絞り込み中だと一覧に出てこない。
   // せっかく目立たせても隠れていては意味がないので、そのときだけ「すべて」に戻す。
+  // 一覧そのものが別だと輪をかけて見えないので、その監視が居るほうへ切り替える。
   useEffect(() => {
-    if (highlightedId) setActiveTab('all');
+    if (!highlightedId) return;
+    setActiveTab('all');
+    const target = watches.find((w) => w.id === highlightedId);
+    if (target) setMode(modeOf(target));
+    // watches は毎回の取得で作り直されるため、依存に入れると切り替えるたびに戻ってしまう
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedId]);
 
+  // 一覧の切り替えが先。絞り込みのカウントも、今見ている一覧の中の数にする
+  const watchesInMode = useMemo(() => watches.filter((w) => modeOf(w) === mode), [watches, mode]);
+
   const filteredWatches = useMemo(() => {
-    const matched = watches.filter((w) => {
+    const matched = watchesInMode.filter((w) => {
       const matchSearch =
         w.title.toLowerCase().includes(search.toLowerCase()) ||
         w.url.toLowerCase().includes(search.toLowerCase());
@@ -81,17 +99,28 @@ export const WatchList: React.FC<WatchListProps> = ({
     // 確認日時での並び替えも選べるようにはしたが、既定にはしない。裏のチェックが走るたびに
     // 動く値なので、見ている最中にカードの順番が勝手に入れ替わってしまう。
     return sortWatches(matched, sort);
-  }, [watches, search, activeTab, sort]);
+  }, [watchesInMode, search, activeTab, sort]);
+
+  // 同じ作品を複数サイトで追いかけるのはダウンロード監視だけなので、そちらでのみまとめる
+  const groups = useMemo(
+    () => (mode === 'download' ? groupByWork(filteredWatches) : null),
+    [mode, filteredWatches]
+  );
 
   const countOf = (tab: FilterTab) => {
-    if (tab === 'changed') return watches.filter(isUnviewed).length;
-    if (tab === 'error') return watches.filter((w) => w.hasError).length;
-    if (tab === 'paused') return watches.filter((w) => w.paused).length;
-    return watches.length;
+    if (tab === 'changed') return watchesInMode.filter(isUnviewed).length;
+    if (tab === 'error') return watchesInMode.filter((w) => w.hasError).length;
+    if (tab === 'paused') return watchesInMode.filter((w) => w.paused).length;
+    return watchesInMode.length;
   };
+
+  const countOfMode = (target: ListMode) => watches.filter((w) => modeOf(w) === target).length;
 
   return (
     <div className="space-y-4">
+      {/* Web 監視 / ダウンロード監視 */}
+      <ListModeTabs mode={mode} onChange={handleChangeMode} countOf={countOfMode} />
+
       {/* 絞り込み + 並び替え */}
       <ListToolbar
         activeTab={activeTab}
@@ -114,14 +143,21 @@ export const WatchList: React.FC<WatchListProps> = ({
             {search || activeTab !== 'all' ? <EyeOff className="w-6 h-6" /> : <Layers className="w-6 h-6" />}
           </div>
           <h3 className="font-semibold text-slate-800 dark:text-slate-100 text-base mb-1">
-            {search || activeTab !== 'all' ? '該当する監視対象が見つかりません' : 'まだ監視対象がありません'}
+            {search || activeTab !== 'all'
+              ? '該当する監視対象が見つかりません'
+              : mode === 'download'
+                ? 'まだダウンロード監視がありません'
+                : 'まだ監視対象がありません'}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-4">
             {search || activeTab !== 'all'
               ? '検索条件やフィルタを変更してみてください。'
-              : '監視したいWebページのURLを入力して、DryEyesに定期チェックを任せましょう。'}
+              : mode === 'download'
+                ? // ここは「登録」ではなく「既にある監視を繋ぐ」導線。作るのは Web 監視から
+                  'Web 監視のカードから投入設定を開き、投入先の PowerDowner ユーザーを選ぶと、この一覧に移ります。'
+                : '監視したいWebページのURLを入力して、DryEyesに定期チェックを任せましょう。'}
           </p>
-          {!search && activeTab === 'all' && (
+          {!search && activeTab === 'all' && mode === 'web' && (
             <button
               onClick={onOpenCreateModal}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition active:scale-95 shadow-sm shadow-indigo-200 dark:shadow-none"
@@ -132,24 +168,34 @@ export const WatchList: React.FC<WatchListProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2">
-          {filteredWatches.map((watch) => (
-            <WatchCard
-              key={watch.id}
-              watch={watch}
-              highlighted={watch.id === highlightedId}
-              showImage={showCardImages}
-              onTriggerCheck={onTriggerCheck}
-              onTogglePause={onTogglePause}
-              onOpenDiff={onOpenDiff}
-              onOpenHistory={onOpenHistory}
-              onOpenFeed={onOpenFeed}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onCopyTo={onCopyTo}
-              onReviewRedirect={onReviewRedirect}
-              onChangeImage={onChangeImage}
-            />
-          ))}
+          {(groups ?? [{ key: 'flat', title: '', author: null, watches: filteredWatches }]).map((group) => {
+            const cards = group.watches.map((watch) => (
+              <WatchCard
+                key={watch.id}
+                watch={watch}
+                highlighted={watch.id === highlightedId}
+                showImage={showCardImages}
+                onTriggerCheck={onTriggerCheck}
+                onTogglePause={onTogglePause}
+                onOpenDiff={onOpenDiff}
+                onOpenHistory={onOpenHistory}
+                onOpenFeed={onOpenFeed}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onCopyTo={onCopyTo}
+                onReviewRedirect={onReviewRedirect}
+                onChangeImage={onChangeImage}
+              />
+            ));
+
+            // 1 サイトしか無い作品に見出しを付けると、まとまっていること自体が見えなくなる
+            if (!groups || group.watches.length < 2) return <React.Fragment key={group.key}>{cards}</React.Fragment>;
+            return (
+              <WorkGroupCard key={group.key} group={group}>
+                {cards}
+              </WorkGroupCard>
+            );
+          })}
         </div>
       )}
     </div>

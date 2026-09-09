@@ -33,7 +33,7 @@ import {
 } from '../services/cardImage.js';
 import { assertSafeProxyTarget } from '../services/urlSafety.js';
 import { requireAuth } from '../middleware/auth.js';
-import { clearFeedState, pruneFeedState } from '../services/feedStore.js';
+import { clearFeedState, getFeedConfig, pruneFeedState } from '../services/feedStore.js';
 import {
   CreateWatchDto,
   RedirectDecisionOptions,
@@ -65,12 +65,15 @@ function ensureOwned(watchId: string, userId: string, res: Response): boolean {
 
 // changedetection.io は既読も「移転の確認待ち」も持たないため、DryEyes 側の状態を合成して返す
 function withViewState(watch: WatchModel, userId: string): WatchModel {
+  const feed = getFeedConfig(watch.id);
   return {
     ...watch,
     hasUnviewed: hasUnviewedChange(userId, watch.id, watch.lastChanged),
     unviewedCount: countUnviewedChanges(userId, watch.id, watch.snapshotCount, watch.lastChanged),
     lastViewedAt: getViewState(userId, watch.id)?.viewedAt ?? null,
     pendingRedirect: getPendingRedirect(watch.id),
+    // 一覧の仕分けに要るぶんだけ写す。設定の編集は投入モーダル側の口で行う
+    feed: { userId: feed.userId, author: feed.author, title: feed.title },
   };
 }
 

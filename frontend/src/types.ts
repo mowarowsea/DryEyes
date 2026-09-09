@@ -24,6 +24,9 @@ export interface WatchModel {
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
   // リダイレクトを検知して、監視先の変更を確認している状態（承認するまで URL は変わらない）
   pendingRedirect?: RedirectProposal | null;
+  // 投入設定の写し。一覧を「Web 監視 / ダウンロード監視」に分け、
+  // 同じ作品の監視を 1 枚にまとめるのに使う
+  feed?: FeedSummary;
 }
 
 export interface CreateWatchDto {
@@ -256,6 +259,14 @@ export interface PowerdownerUser {
   id: number;
   name: string;
   defaultDir: string | null;
+}
+
+/** 一覧に添えて返る投入設定の写し。まとめ方を決めるのに要るぶんだけ */
+export interface FeedSummary {
+  /** 投入先の PowerDowner ユーザー。決まっていれば「ダウンロード監視」 */
+  userId: number | null;
+  author: string | null;
+  title: string | null;
 }
 
 export interface FeedConfig {

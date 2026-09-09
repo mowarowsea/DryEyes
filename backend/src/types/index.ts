@@ -24,6 +24,17 @@ export interface WatchModel {
   lastViewedAt?: string | null; // 最後に差分を確認した日時 (ISO8601)
   // リダイレクトを検知して、監視先の変更をユーザーへ確認している状態（承認されるまで URL は変えない）
   pendingRedirect?: RedirectProposal | null;
+  // PowerDowner 連携の要約。一覧を「Web 監視 / ダウンロード監視」に分け、
+  // 同じ作品の監視を 1 枚にまとめるために添える（設定の実体は watch-feed.json）
+  feed?: FeedSummary;
+}
+
+/** 一覧に添える投入設定の写し。まとめ方を決めるのに要るぶんだけ */
+export interface FeedSummary {
+  /** 投入先の PowerDowner ユーザー。決まっていれば「ダウンロード監視」 */
+  userId: number | null;
+  author: string | null;
+  title: string | null;
 }
 
 export interface CreateWatchDto {
