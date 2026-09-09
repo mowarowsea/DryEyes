@@ -57,6 +57,15 @@ export const config = {
     // (docker-compose がコンテナの 3000 番をホストの 3020 番へ出している)
     wsUrl: process.env.BROWSER_WS_URL || 'ws://localhost:3020',
   },
+  powerdowner: {
+    // ダウンロード司令塔。候補を投入する先 (ARCHITECTURE.md 5 章)
+    baseUrl: (process.env.POWERDOWNER_URL || 'http://127.0.0.1:3939').replace(/\/$/, ''),
+    // PowerDowner の config.json の apiToken と同じ値。
+    // 向こうは LAN に開いているので、これが無いと誰でも任意 URL を落とさせられる
+    token: process.env.POWERDOWNER_TOKEN || '',
+    // 1 回の投入で送る上限。PowerDowner 側も 20 件で切るので、それに合わせて分割する
+    batchSize: 20,
+  },
   ntfy: {
     // ホスト／ブラウザから見た ntfy の URL（購読リンクの表示用）
     baseUrl: process.env.NTFY_URL || 'http://localhost:8085',

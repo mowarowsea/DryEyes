@@ -207,13 +207,16 @@ Content-Type: application/json
 
 ```json
 {
-  "created":   [ { "id": "3f2a1b9c", "url": "...", "meta": { "mirrors": [...] } } ],
-  "merged":    [ { "jobId": "...", "title": "...", "urls": [...] } ],
-  "skipped":   [ { "title": "...", "reason": "所持済み (第1-6巻)" } ],
-  "invalid":   [ { "title": "...", "reason": "有効な URL がありません (http/https のみ)" } ],
+  "created":   [ { "id": "3f2a1b9c", "url": "...", "meta": { "sourceKey": "...", "mirrors": [] } } ],
+  "merged":    [ { "jobId": "...", "sourceKey": "...", "title": "...", "urls": [] } ],
+  "skipped":   [ { "sourceKey": "...", "title": "...", "reason": "所持済み (第1-6巻)" } ],
+  "invalid":   [ { "sourceKey": "...", "title": "...", "reason": "有効な URL がありません" } ],
   "truncated": 0
 }
 ```
+
+**結果の突き合わせは `sourceKey` で行う。** `title` は重複しうるので目印にならない
+(`created` だけは `Job.meta.sourceKey` に入っている)。
 
 BFF 側で押さえておくこと:
 
@@ -244,15 +247,19 @@ XPath 配下の `<a>` から取る**。`hasAnySelectorMatch()` と同じ仕組�
 | `services/feedMatch.ts` | 増分と要素の突き合わせ、正規表現によるメタ抽出 | 済 |
 | `services/feedStore.ts` | 候補・監視ごとの設定・投入ポインタ (`watch-feed.json`) | 済 |
 | `services/feedScan.ts` | 上の 3 つを繋ぐ。差分 → 抽出 → 候補 | 済 |
-| `routes/feed.ts` | 候補の一覧・見送り、設定の取得と更新、スキャンの実行 | 済 |
-| 候補一覧の UI と投入ボタン | 人が確認して PowerDowner へ送る | **未** |
-| 定期スキャン | `redirectScan.ts` と同じ形の周期ジョブ | **未** (今は手で叩く) |
+| `services/powerdowner.ts` | PowerDowner への POST と、応答を sourceKey ごとの説明に畳む | 済 |
+| `services/feedSend.ts` | 監視ごとにまとめ、上限で分割して送り、結果を候補に書き戻す | 済 |
+| `routes/feed.ts` | 候補の一覧・見送り・投入、設定の取得と更新、スキャンの実行 | 済 |
+| `components/FeedModal.tsx` | 設定・取り込み・候補の確認を 1 画面に並べたモーダル | 済 |
+| 定期スキャン | `redirectScan.ts` と同じ形の周期ジョブ | **未** (今は画面から手で叩く) |
+| 自動投入 | 確認なしで送る | **未** (抽出の当たり外れを見てから) |
 
 API:
 
 ```
 GET    /api/feed/candidates?status=pending      候補一覧 (自分が持つ監視のものだけ)
 POST   /api/feed/candidates/:id/dismiss         見送る
+POST   /api/feed/candidates/send                選んだ候補を PowerDowner へ送る
 GET    /api/feed/watches/:watchId               投入設定
 PUT    /api/feed/watches/:watchId               投入設定の更新 (enabled / itemPattern / userId / destDir)
 POST   /api/feed/watches/:watchId/scan          増分から候補を作る
@@ -281,3 +288,16 @@ DryEyes の担当。ジョブの完了・人間待ち・失敗は PowerDowner �
 PowerDowner は `host: 0.0.0.0` で認証を持たないため、投入口には共有トークンを 1 本置く。
 BFF は `Authorization: Bearer` を付けて POST する。トークンは BFF の環境変数に持ち、
 フロントには渡さない（フロントは BFF の投入 API を叩くだけ）。
+
+```
+POWERDOWNER_URL=http://127.0.0.1:3939
+POWERDOWNER_TOKEN=   # PowerDowner の config.json の apiToken と同じ値
+```
+
+### 投入の単位
+
+監視ごとに投入先ユーザーと保存先が違うので、**監視単位にまとめてから送る**。
+1 回の上限 (20 件) を超える分は BFF 側で分割して順に送る — 向こうに切り捨てさせると、
+切られた候補が `pending` のまま取り残されて気づけない。
+
+応答に現れなかった候補は送信済みにせず、次の投入に回す。

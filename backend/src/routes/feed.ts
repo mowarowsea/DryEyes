@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { isOwnedBy } from '../services/ownership.js';
 import { changedetectionClient } from '../services/changedetection.js';
 import { scanWatchForFeed } from '../services/feedScan.js';
+import { sendCandidates } from '../services/feedSend.js';
 import {
   dismissCandidate,
   getCandidate,
@@ -47,6 +48,23 @@ feedRouter.post('/candidates/:id/dismiss', (req, res) => {
     return;
   }
   res.json(dismissCandidate(req.params.id));
+});
+
+/**
+ * 選んだ候補を PowerDowner へ送る。
+ * 監視ごとの設定 (投入先ユーザー・保存先) でまとめ、上限を超える分は分割して順に送る。
+ */
+feedRouter.post('/candidates/send', async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  if (ids.length === 0) {
+    res.status(400).json({ error: '投入する候補を選んでください' });
+    return;
+  }
+  try {
+    res.json(await sendCandidates(ids, req.user!.id));
+  } catch (err: any) {
+    res.status(500).json({ error: '投入に失敗しました', message: err.message });
+  }
 });
 
 feedRouter.get('/watches/:watchId', (req, res) => {

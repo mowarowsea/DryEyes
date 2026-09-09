@@ -8,6 +8,7 @@ import { EditWatchModal, EditWatchOptions } from './components/EditWatchModal';
 import { CopyWatchModal } from './components/CopyWatchModal';
 import { DiffModal } from './components/DiffModal';
 import { HistoryModal } from './components/HistoryModal';
+import { FeedModal } from './components/FeedModal';
 import { RedirectReviewModal } from './components/RedirectReviewModal';
 import { CardImageModal } from './components/CardImageModal';
 import { LoginScreen } from './components/LoginScreen';
@@ -50,6 +51,7 @@ export default function App() {
   const [diffTargetWatch, setDiffTargetWatch] = useState<WatchModel | null>(null);
   // 変更履歴（いつ何が変わったか）のモーダル。変更点モーダルの上に重ねて開くこともある。
   const [historyTargetWatch, setHistoryTargetWatch] = useState<WatchModel | null>(null);
+  const [feedTargetWatch, setFeedTargetWatch] = useState<WatchModel | null>(null);
   // 監視先が別 URL へ転送されていたときの確認モーダル
   const [redirectTargetWatch, setRedirectTargetWatch] = useState<WatchModel | null>(null);
   // カード背景の絵を選び直すモーダル
@@ -350,6 +352,7 @@ export default function App() {
           onTogglePause={handleTogglePause}
           onOpenDiff={(w) => setDiffTargetWatch(w)}
           onOpenHistory={(w) => setHistoryTargetWatch(w)}
+          onOpenFeed={(w) => setFeedTargetWatch(w)}
           onEdit={(w) => setEditTargetWatch(w)}
           onCopyTo={(w) => setCopyTargetWatch(w)}
           onReviewRedirect={(w) => setRedirectTargetWatch(w)}
@@ -425,6 +428,12 @@ export default function App() {
         watch={historyTargetWatch}
         isOpen={!!historyTargetWatch}
         onClose={() => setHistoryTargetWatch(null)}
+      />
+
+      <FeedModal
+        watch={feedTargetWatch}
+        isOpen={!!feedTargetWatch}
+        onClose={() => setFeedTargetWatch(null)}
       />
 
       {user && (

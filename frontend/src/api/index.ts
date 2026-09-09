@@ -14,6 +14,10 @@ import {
   RedirectDecisionResult,
   DuplicateWatch,
   HistoryDiff,
+  FeedCandidate,
+  FeedConfig,
+  FeedScanResult,
+  FeedSendSummary,
 } from '../types';
 import { parseCropHeader } from '../cardImage';
 
@@ -295,6 +299,60 @@ export const api = {
       body: JSON.stringify(options),
     });
     if (!res.ok) throw new Error(await errorMessage(res, '移転の却下に失敗しました'));
+    return res.json();
+  },
+
+  // --- PowerDowner への投入候補 -----------------------------------------
+
+  // 監視ページの増分から作った候補。既定は未処理のものだけ
+  async listFeedCandidates(
+    status: FeedCandidate['status'] = 'pending',
+    watchId?: string
+  ): Promise<FeedCandidate[]> {
+    const query = new URLSearchParams({ status });
+    if (watchId) query.set('watchId', watchId);
+    const res = await request(`/feed/candidates?${query.toString()}`);
+    if (!res.ok) throw new Error(await errorMessage(res, '候補の取得に失敗しました'));
+    return res.json();
+  },
+
+  // 選んだ候補を PowerDowner へ送る。
+  // 取得済みでスキップされた・既存ジョブに合流した、も成功として返る
+  async sendFeedCandidates(ids: string[]): Promise<FeedSendSummary> {
+    const res = await request('/feed/candidates/send', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '投入に失敗しました'));
+    return res.json();
+  },
+
+  // 見送る。同じ行が次のスキャンで復活することはない
+  async dismissFeedCandidate(id: string): Promise<FeedCandidate> {
+    const res = await request(`/feed/candidates/${id}/dismiss`, { method: 'POST' });
+    if (!res.ok) throw new Error(await errorMessage(res, '見送りに失敗しました'));
+    return res.json();
+  },
+
+  async getFeedConfig(watchId: string): Promise<FeedConfig> {
+    const res = await request(`/feed/watches/${watchId}`);
+    if (!res.ok) throw new Error(await errorMessage(res, '投入設定の取得に失敗しました'));
+    return res.json();
+  },
+
+  async saveFeedConfig(watchId: string, patch: Partial<FeedConfig>): Promise<FeedConfig> {
+    const res = await request(`/feed/watches/${watchId}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '投入設定の保存に失敗しました'));
+    return res.json();
+  },
+
+  // 増分から候補を作る。初回は候補を作らず、どこまで見たかだけ記録する
+  async scanFeed(watchId: string): Promise<FeedScanResult> {
+    const res = await request(`/feed/watches/${watchId}/scan`, { method: 'POST' });
+    if (!res.ok) throw new Error(await errorMessage(res, '候補の作成に失敗しました'));
     return res.json();
   },
 };

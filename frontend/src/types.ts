@@ -212,3 +212,45 @@ export interface SaveCardImageRequest {
   dataUrl?: string; // mode: 'upload'
   crop?: CardImageCrop | null;
 }
+
+// --- PowerDowner への投入候補 (ARCHITECTURE.md 5 章) -----------------------
+
+export interface FeedCandidate {
+  id: string;
+  watchId: string;
+  sourceKey: string;
+  text: string;
+  urls: string[];
+  meta: {
+    title: string | null;
+    author: string | null;
+    volume: string | null;
+    rawText: string;
+  };
+  foundAt: string;
+  status: 'pending' | 'sent' | 'dismissed';
+  sentAt?: string | null;
+  resultNote?: string | null;
+}
+
+export interface FeedConfig {
+  enabled: boolean;
+  itemPattern: string | null;
+  userId: number | null;
+  destDir: string | null;
+}
+
+export interface FeedScanResult {
+  watchId: string;
+  status: 'disabled' | 'no-selector' | 'initialized' | 'unchanged' | 'scanned';
+  added: number;
+  addedLines?: number;
+  extracted?: number;
+}
+
+export interface FeedSendSummary {
+  sent: number;
+  results: { id: string; note: string }[];
+  errors: { watchId: string; message: string }[];
+  ignored: { id: string; reason: string }[];
+}

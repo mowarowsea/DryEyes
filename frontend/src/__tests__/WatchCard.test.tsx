@@ -44,6 +44,7 @@ describe('WatchCard', () => {
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
         onOpenHistory={vi.fn()}
+        onOpenFeed={vi.fn()}
         {...handlers}
       />
     );
@@ -139,6 +140,7 @@ describe('WatchCard', () => {
         onReviewRedirect={vi.fn()}
         onChangeImage={vi.fn()}
         onOpenHistory={vi.fn()}
+        onOpenFeed={vi.fn()}
       />
     );
 

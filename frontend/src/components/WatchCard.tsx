@@ -12,6 +12,7 @@ import {
   Settings2,
   Signpost,
   Trash2,
+  Download,
 } from 'lucide-react';
 import { WatchModel } from '../types';
 import { unviewedCountOf } from '../watchStatus';
@@ -31,6 +32,8 @@ interface WatchCardProps {
   onOpenDiff: (watch: WatchModel) => void;
   // 変更履歴（いつ何が変わったか）を開く
   onOpenHistory: (watch: WatchModel) => void;
+  // 見つけた新着を PowerDowner へ投入する画面を開く
+  onOpenFeed: (watch: WatchModel) => void;
   onEdit: (watch: WatchModel) => void;
   onDelete: (id: string) => Promise<void>;
   onCopyTo: (watch: WatchModel) => void;
@@ -86,6 +89,7 @@ export const WatchCard: React.FC<WatchCardProps> = ({
   onTogglePause,
   onOpenDiff,
   onOpenHistory,
+  onOpenFeed,
   onEdit,
   onDelete,
   onCopyTo,
@@ -322,6 +326,17 @@ export const WatchCard: React.FC<WatchCardProps> = ({
               >
                 <History className="w-3.5 h-3.5 text-slate-400" />
                 変更履歴
+              </button>
+
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenFeed(watch);
+                }}
+                className={`${menuItemClass} text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800`}
+              >
+                <Download className="w-3.5 h-3.5 text-slate-400" />
+                ダウンロード投入
               </button>
 
               <button
