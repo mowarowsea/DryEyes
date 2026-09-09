@@ -19,6 +19,7 @@ import {
   FeedConfig,
   FeedScanResult,
   FeedSendSummary,
+  PowerdownerUser,
 } from '../types';
 import { parseCropHeader } from '../cardImage';
 
@@ -328,10 +329,28 @@ export const api = {
     return res.json();
   },
 
-  // 見送る。同じ行が次のスキャンで復活することはない
-  async dismissFeedCandidate(id: string): Promise<FeedCandidate> {
-    const res = await request(`/feed/candidates/${id}/dismiss`, { method: 'POST' });
-    if (!res.ok) throw new Error(await errorMessage(res, '見送りに失敗しました'));
+  // 対象外にする。PowerDowner の台帳へ「所持済み」として登録したうえで候補を畳む。
+  // 同じ行が次のスキャンで復活することはない
+  async excludeFeedCandidates(ids: string[]): Promise<{ registered: number; skipped: number; excluded: number }> {
+    const res = await request('/feed/candidates/exclude', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '対象外にできませんでした'));
+    return res.json();
+  },
+
+  // 対象外を取り消して投入対象へ戻す。台帳へ入れたぶんも一緒に消える
+  async restoreFeedCandidate(id: string): Promise<FeedCandidate> {
+    const res = await request(`/feed/candidates/${id}/restore`, { method: 'POST' });
+    if (!res.ok) throw new Error(await errorMessage(res, '戻せませんでした'));
+    return res.json();
+  },
+
+  // 投入先の選択肢。PowerDowner が落ちていると取れないので、画面側で握り潰す
+  async listPowerdownerUsers(): Promise<PowerdownerUser[]> {
+    const res = await request('/feed/powerdowner/users');
+    if (!res.ok) throw new Error(await errorMessage(res, 'PowerDowner のユーザー一覧を取れません'));
     return res.json();
   },
 
@@ -347,16 +366,6 @@ export const api = {
       body: JSON.stringify(patch),
     });
     if (!res.ok) throw new Error(await errorMessage(res, '投入設定の保存に失敗しました'));
-    return res.json();
-  },
-
-  // 「これは既に持っている」を PowerDowner の台帳へ登録し、候補から外す
-  async markFeedCandidatesHave(ids: string[]): Promise<{ registered: number; skipped: number; dismissed: number }> {
-    const res = await request('/feed/candidates/have', {
-      method: 'POST',
-      body: JSON.stringify({ ids }),
-    });
-    if (!res.ok) throw new Error(await errorMessage(res, '所持の登録に失敗しました'));
     return res.json();
   },
 

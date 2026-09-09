@@ -44,15 +44,18 @@ const sourceOf = (snapshots: Record<number, string>) => ({
 const extractOf = (items: { text: string; urls: string[] }[]) => vi.fn(async () => items);
 
 describe('scanWatchForFeed', () => {
-  it('should do nothing while the watch is not enabled', async () => {
-    const extract = extractOf([]);
-    const result = await scanWatchForFeed(watchOf('s1'), { source: sourceOf({ 100: 'a' }), extract });
-    expect(result.status).toBe('disabled');
-    expect(extract).not.toHaveBeenCalled();
+  it('should run even for a watch with no PowerDowner settings yet', async () => {
+    // 投入先を決める前に「何が取れるのか」を見たい。画面のボタンから呼ばれたときは、
+    // 押した時点で意図がはっきりしているので実行する
+    const result = await scanWatchForFeed(
+      watchOf('s1'),
+      { source: sourceOf({ 100: 'a' }), extract: extractOf([]) },
+      { mode: 'all' }
+    );
+    expect(result.status).toBe('collected');
   });
 
   it('should skip a watch that has no selector', async () => {
-    setFeedConfig('s2', { enabled: true });
     const result = await scanWatchForFeed(watchOf('s2', []), { source: sourceOf({ 100: 'a' }), extract: extractOf([]) });
     expect(result.status).toBe('no-selector');
   });
@@ -60,7 +63,6 @@ describe('scanWatchForFeed', () => {
   it('should only place the pointer on the first scan', async () => {
     // 登録した時点でページに並んでいるものは「新着」ではない。
     // ここで候補にすると、既に持っている巻がまとめて出てくる
-    setFeedConfig('s3', { enabled: true });
     const extract = extractOf([{ text: '[著者] 作品名 第01巻', urls: ['https://a.example/1'] }]);
     const result = await scanWatchForFeed(watchOf('s3'), {
       source: sourceOf({ 100: '[著者] 作品名 第01巻' }),
@@ -74,7 +76,6 @@ describe('scanWatchForFeed', () => {
 
   it('should turn an increment into candidates', async () => {
     setFeedConfig('s4', {
-      enabled: true,
       itemPattern: String.raw`^\[(?<author>[^\]]+)\]\s*(?<title>.+?)\s*第(?<volume>\d+)巻`,
     });
     const source = sourceOf({
@@ -105,7 +106,6 @@ describe('scanWatchForFeed', () => {
   });
 
   it('should report unchanged when the pointer is already at the latest snapshot', async () => {
-    setFeedConfig('s5', { enabled: true });
     const source = sourceOf({ 100: 'a' });
     await scanWatchForFeed(watchOf('s5'), { source, extract: extractOf([]) });
     const again = await scanWatchForFeed(watchOf('s5'), { source, extract: extractOf([]) });
@@ -113,7 +113,6 @@ describe('scanWatchForFeed', () => {
   });
 
   it('should not open the page when the diff has no added lines', async () => {
-    setFeedConfig('s6', { enabled: true });
     await scanWatchForFeed(watchOf('s6'), { source: sourceOf({ 100: 'a\nb' }), extract: extractOf([]) });
 
     const extract = extractOf([]);
@@ -126,7 +125,6 @@ describe('scanWatchForFeed', () => {
   });
 
   it('should ignore extracted elements that carry no link', async () => {
-    setFeedConfig('s7', { enabled: true });
     await scanWatchForFeed(watchOf('s7'), { source: sourceOf({ 100: '古い行' }), extract: extractOf([]) });
 
     const result = await scanWatchForFeed(watchOf('s7'), {
@@ -137,9 +135,48 @@ describe('scanWatchForFeed', () => {
     expect(result.addedLines).toBe(1);
   });
 
+  it('should take author and title from the watch, since rows rarely carry them', async () => {
+    // 行に載っているのは巻数だけ、というサイトが多い。
+    // 監視 1 件 = 1 作品なので、作者とタイトルは監視の設定を使う
+    setFeedConfig('s13', { author: '著者', title: '異世界町工場無双' });
+    await scanWatchForFeed(
+      watchOf('s13'),
+      {
+        source: sourceOf({ 100: 'x' }),
+        extract: extractOf([
+          { text: 'Isekai machikoba muso Shinrai v01-02s.rar katfile', urls: ['https://a.example/1'] },
+        ]),
+      },
+      { mode: 'all' }
+    );
+
+    const [candidate] = listCandidates({ watchId: 's13' });
+    expect(candidate.meta.author).toBe('著者');
+    expect(candidate.meta.title).toBe('異世界町工場無双');
+    // 巻数は PowerDowner が元の文字列から読むので、ここでは空のままでよい
+    expect(candidate.meta.volume).toBeNull();
+    expect(candidate.meta.rawText).toContain('v01-02s.rar');
+  });
+
+  it('should let the watch settings win over the pattern', async () => {
+    setFeedConfig('s14', {
+      title: '決めた作品名',
+      itemPattern: String.raw`(?<title>[A-Za-z ]+) v`,
+    });
+    await scanWatchForFeed(
+      watchOf('s14'),
+      {
+        source: sourceOf({ 100: 'x' }),
+        extract: extractOf([{ text: 'Isekai machikoba v01.rar', urls: ['https://a.example/1'] }]),
+      },
+      { mode: 'all' }
+    );
+
+    expect(listCandidates({ watchId: 's14' })[0].meta.title).toBe('決めた作品名');
+  });
+
   it('should collect the whole page when asked, without looking at the diff', async () => {
     // 登録直後の洗い出し。増分を待たずに「何があるか」を一度で出したい
-    setFeedConfig('s9', { enabled: true });
     const extract = extractOf([
       { text: '[著者] 作品名 第01巻', urls: ['https://a.example/1'] },
       { text: '[著者] 作品名 第02巻', urls: ['https://a.example/2'] },
@@ -158,7 +195,6 @@ describe('scanWatchForFeed', () => {
   });
 
   it('should not duplicate candidates already collected', async () => {
-    setFeedConfig('s10', { enabled: true });
     const items = [{ text: '[著者] 作品名 第01巻', urls: ['https://a.example/1'] }];
     const deps = { source: sourceOf({ 100: 'x' }), extract: extractOf(items) };
 
@@ -169,8 +205,29 @@ describe('scanWatchForFeed', () => {
     expect(listCandidates({ watchId: 's10' })).toHaveLength(1);
   });
 
+  it('should report what was extracted so a zero-candidate result can be diagnosed', async () => {
+    // 「取れた要素 8 / 候補 0」のとき、セレクタが外れているのか
+    // リンクが取れていないのかを画面で切り分けられるようにする
+    const result = await scanWatchForFeed(
+      watchOf('s12'),
+      {
+        source: sourceOf({ 100: 'x' }),
+        extract: extractOf([
+          { text: '[著者] 作品名 第01巻', urls: [] },
+          { text: '[著者] 作品名 第02巻', urls: [] },
+        ]),
+      },
+      { mode: 'all' }
+    );
+
+    expect(result.added).toBe(0);
+    expect(result.samples).toEqual([
+      { text: '[著者] 作品名 第01巻', urls: 0 },
+      { text: '[著者] 作品名 第02巻', urls: 0 },
+    ]);
+  });
+
   it('should skip elements without links even in collect mode', async () => {
-    setFeedConfig('s11', { enabled: true });
     const result = await scanWatchForFeed(
       watchOf('s11'),
       {
@@ -187,7 +244,6 @@ describe('scanWatchForFeed', () => {
   });
 
   it('should keep rawText when no pattern is configured', async () => {
-    setFeedConfig('s8', { enabled: true });
     await scanWatchForFeed(watchOf('s8'), { source: sourceOf({ 100: '古い行' }), extract: extractOf([]) });
 
     await scanWatchForFeed(watchOf('s8'), {

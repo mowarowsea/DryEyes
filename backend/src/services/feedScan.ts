@@ -4,7 +4,7 @@ import { addCandidates, getFeedConfig, getPointer, setPointer } from './feedStor
 import { extractItems } from './itemExtract.js';
 import { SnapshotSource } from './historyDiff.js';
 import { changedetectionClient } from './changedetection.js';
-import { FeedScanResult, WatchModel } from '../types/index.js';
+import { FeedConfig, FeedScanResult, WatchModel } from '../types/index.js';
 
 /**
  * 監視の増分から投入候補を作る。
@@ -16,15 +16,37 @@ import { FeedScanResult, WatchModel } from '../types/index.js';
  * スナップショットには href が残らないので、この二段構えが要る (ARCHITECTURE.md 5 章)。
  */
 
-/** リンクを持たない要素は投入しようがないので落とす */
-function toEntries(items: ExtractedItem[], itemPattern: string | null) {
+// 候補が 0 件だった原因を画面で切り分けられるよう、取れた要素の頭を返す
+const SAMPLE_LIMIT = 5;
+const samplesOf = (items: ExtractedItem[]) =>
+  items.slice(0, SAMPLE_LIMIT).map((item) => ({
+    text: item.text.slice(0, 120),
+    urls: item.urls.length,
+  }));
+
+/**
+ * 抽出した要素を候補の形にする。リンクを持たないものは投入しようがないので落とす。
+ *
+ * 作者とタイトルは監視の設定を優先する。監視 1 件 = 1 作品であり、行に載っているのは
+ * 巻数だけというサイトが多いため。巻数は PowerDowner 側が rawText から読むので、
+ * 正規表現を書かなくても普通は足りる。
+ */
+function toEntries(items: ExtractedItem[], config: FeedConfig) {
   return items
     .filter((item) => item.urls.length > 0)
-    .map((item) => ({
-      text: item.text,
-      urls: item.urls,
-      meta: applyPattern(item.text, itemPattern),
-    }));
+    .map((item) => {
+      const parsed = applyPattern(item.text, config.itemPattern);
+      return {
+        text: item.text,
+        urls: item.urls,
+        meta: {
+          author: config.author ?? parsed.author,
+          title: config.title ?? parsed.title,
+          volume: parsed.volume,
+          rawText: parsed.rawText,
+        },
+      };
+    });
 }
 
 export interface FeedScanDeps {
@@ -51,8 +73,9 @@ export async function scanWatchForFeed(
   deps: FeedScanDeps = defaultDeps,
   options: FeedScanOptions = {}
 ): Promise<FeedScanResult> {
+  // ここは「呼ばれたら取り込む」だけ。画面のボタンからも定期巡回からも同じものを呼ぶ。
+  // どの監視を追いかけるかの判断は feedAutoScan 側にある
   const config = getFeedConfig(watch.id);
-  if (!config.enabled) return { watchId: watch.id, status: 'disabled', added: 0 };
 
   const selectors = watch.includeFilters.filter(Boolean);
   if (selectors.length === 0) return { watchId: watch.id, status: 'no-selector', added: 0 };
@@ -65,13 +88,14 @@ export async function scanWatchForFeed(
   // どれが既にあるか・どれを落とすかを人に選ばせる
   if (options.mode === 'all') {
     const items = await deps.extract(watch.url, selectors);
-    const added = addCandidates(watch.id, toEntries(items, config.itemPattern));
+    const added = addCandidates(watch.id, toEntries(items, config));
     setPointer(watch.id, latest.timestamp);
     return {
       watchId: watch.id,
       status: 'collected',
       added: added.length,
       extracted: items.length,
+      samples: samplesOf(items),
     };
   }
 
@@ -103,7 +127,7 @@ export async function scanWatchForFeed(
   const items = await deps.extract(watch.url, selectors);
   const matched = selectAddedItems(items, addedLines);
 
-  const added = addCandidates(watch.id, toEntries(matched, config.itemPattern));
+  const added = addCandidates(watch.id, toEntries(matched, config));
 
   setPointer(watch.id, latest.timestamp);
   return {
@@ -112,5 +136,6 @@ export async function scanWatchForFeed(
     added: added.length,
     addedLines: addedLines.length,
     extracted: items.length,
+    samples: samplesOf(items),
   };
 }

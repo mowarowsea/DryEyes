@@ -306,7 +306,13 @@ export interface FeedCandidate {
     rawText: string;
   };
   foundAt: string;
+  /** pending: 投入対象 / sent: 投入済み / dismissed: 対象外 */
   status: 'pending' | 'sent' | 'dismissed';
+  /**
+   * 対象外にしたときに PowerDowner の台帳へ入れたレコードの ID。
+   * 「やっぱり対象だった」と戻すときに、この 1 件だけを向こうから消す。
+   */
+  libraryItemId?: number | null;
   sentAt?: string | null;
   /** 投入したときの PowerDowner の返答 (スキップ・合流もここに残す) */
   resultNote?: string | null;
@@ -321,13 +327,14 @@ export interface FeedCandidateWithState extends FeedCandidate {
   powerdowner: {
     state: 'new' | 'skip' | 'merge';
     reason: string | null;
+    /** 向こうが元の文字列から読み取った巻数。取れていなければ null */
+    volumeFrom: number | null;
+    volumeTo: number | null;
   } | null;
 }
 
 /** 監視ごとの投入設定。changedetection.io は任意フィールドを持てないので DryEyes 側で持つ */
 export interface FeedConfig {
-  /** 候補を作るか。既定は false — 登録しただけの監視が勝手に候補を溜めないようにする */
-  enabled: boolean;
   /**
    * 候補を人の確認なしで投入するか。
    * 初回の洗い出しで「何を持っていて何を落とすか」を決めたあと、
@@ -335,8 +342,19 @@ export interface FeedConfig {
    */
   autoSend: boolean;
   /**
-   * メタを取り出す正規表現。名前付きキャプチャ (?<author>) (?<title>) (?<volume>) が
-   * そのまま PowerDowner へ渡るフィールドになる。null なら rawText だけを送る。
+   * 作者とタイトル。
+   *
+   * 監視 1 件 = 1 作品なので、これは行ではなく**作品ページの属性**。
+   * 実際、行に載っているのは巻数だけで作者名が無いサイトが多い
+   * (`Isekai machikoba muso Shinrai v01-02s.rar katfile rapidgator ...` など)。
+   * ここに入れておくと作品名キーが揺れないので、別サイトの監視とも突き合う。
+   */
+  author: string | null;
+  title: string | null;
+  /**
+   * 行からメタを取り出す正規表現。名前付きキャプチャ (?<author>) (?<title>) (?<volume>) が
+   * PowerDowner へ渡るフィールドになる。上の author / title が入っていればそちらが優先。
+   * 巻数は PowerDowner 側が元の文字列から読めるので、普通は指定しなくてよい。
    */
   itemPattern: string | null;
   /** PowerDowner 側のユーザー */
@@ -365,7 +383,6 @@ export interface FeedStoreData {
 export interface FeedScanResult {
   watchId: string;
   status:
-    | 'disabled'      // 投入設定が無効
     | 'no-selector'   // ページ全体を見ている監視。どこを 1 件とみなすか決まらない
     | 'initialized'   // 初回。登録時点の内容を候補にしないため、ポインタだけ置いた
     | 'unchanged'     // 前回スキャンから増分なし
@@ -376,4 +393,9 @@ export interface FeedScanResult {
   /** 差分の増えた行数と、実ページから取れた要素数 (当たり外れの手がかり) */
   addedLines?: number;
   extracted?: number;
+  /**
+   * 取れた要素の中身 (先頭数件)。候補が 0 件だったときに、
+   * セレクタが外れているのか・リンクが取れていないのかを画面で切り分けるため。
+   */
+  samples?: { text: string; urls: number }[];
 }

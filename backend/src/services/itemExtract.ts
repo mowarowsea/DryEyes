@@ -22,27 +22,12 @@ import { ExtractedItem } from './feedMatch.js';
 export const buildScript = (selectors: string[]): string => `(() => {
   const selectors = ${JSON.stringify(selectors)};
   const seen = new Set();
-  const out = [];
+  const elements = [];
 
-  const collect = (el) => {
+  const add = (el) => {
     if (!el || el.nodeType !== 1 || seen.has(el)) return;
     seen.add(el);
-
-    // 要素自身がリンクのこともある (<a> が一覧の 1 行になっているページ)
-    const anchors = [];
-    if (el.matches && el.matches('a[href]')) anchors.push(el);
-    anchors.push(...el.querySelectorAll('a[href]'));
-
-    const urls = [];
-    for (const a of anchors) {
-      // href プロパティは相対 URL をページ基準で絶対化してくれる
-      const href = a.href;
-      if (!href || !/^https?:/i.test(href)) continue;
-      if (!urls.includes(href)) urls.push(href);
-    }
-
-    const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
-    if (text) out.push({ text, urls });
+    elements.push(el);
   };
 
   for (const raw of selectors) {
@@ -50,13 +35,44 @@ export const buildScript = (selectors: string[]): string => `(() => {
     try {
       if (selector.startsWith('/') || selector.startsWith('(')) {
         const res = document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-        for (let i = 0; i < res.snapshotLength; i++) collect(res.snapshotItem(i));
+        for (let i = 0; i < res.snapshotLength; i++) add(res.snapshotItem(i));
       } else {
-        document.querySelectorAll(selector).forEach(collect);
+        document.querySelectorAll(selector).forEach(add);
       }
     } catch (e) {
       // 書き方が壊れているセレクタは「当たらなかった」と同じ扱いにする
     }
+  }
+
+  // 入れ子は外側を落として内側だけ残す。
+  // セレクタが「一覧の行」と「それを含む親」の両方に当たると、親のテキストは
+  // ページ全体に近いものになり、1 件の候補としては使いものにならない。
+  const leaves = elements.filter((el) => !elements.some((other) => other !== el && el.contains(other)));
+
+  const out = [];
+  for (const el of leaves) {
+    // 要素自身がリンクのこともある (<a> が一覧の 1 行になっているページ)
+    const anchors = [];
+    if (el.matches && el.matches('a[href]')) anchors.push(el);
+    anchors.push(...el.querySelectorAll('a[href]'));
+
+    const urls = [];
+    for (const a of anchors) {
+      // ページ内アンカー (#top など) は絶対化すると http URL になってしまうので、
+      // 生の属性で先に落とす
+      const raw = a.getAttribute('href') || '';
+      if (raw.startsWith('#')) continue;
+
+      // href プロパティは相対 URL をページ基準で絶対化してくれる
+      const href = a.href;
+      if (!href || !/^https?:/i.test(href)) continue;
+      // 同じページを指すもの (見出しへのジャンプなど) はミラーではない
+      if (href.split('#')[0] === location.href.split('#')[0]) continue;
+      if (!urls.includes(href)) urls.push(href);
+    }
+
+    const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (text) out.push({ text, urls });
   }
   return out;
 })()`;

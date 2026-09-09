@@ -60,6 +60,28 @@ async function post<T>(path: string, body: unknown, failure: string): Promise<T>
   }
 }
 
+/** 投入先として選べるユーザー */
+export interface PowerdownerUser {
+  id: number;
+  name: string;
+  defaultDir: string | null;
+}
+
+export async function listUsers(): Promise<PowerdownerUser[]> {
+  try {
+    const res = await client.get<{ users: PowerdownerUser[] }>(`${config.powerdowner.baseUrl}/api/users`, {
+      headers: config.powerdowner.token ? { Authorization: `Bearer ${config.powerdowner.token}` } : {},
+    });
+    return res.data.users ?? [];
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 401) {
+      throw new Error('PowerDowner に拒否されました。POWERDOWNER_TOKEN が config.json の apiToken と一致しているか確認してください');
+    }
+    throw new Error(`PowerDowner のユーザー一覧を取れません (${config.powerdowner.baseUrl}): ${err?.message || err}`);
+  }
+}
+
 /** POST /api/items/check の 1 件分。投入せずに「もう持っているか」だけを調べた結果 */
 export interface CheckResult {
   sourceKey: string | null;
@@ -76,10 +98,13 @@ export interface CheckResult {
  *
  * 結果を DryEyes 側に保存しないのは、向こうの台帳が動くため
  * (別経路で落ちる・所持登録が増える)。見せるたびに聞き直す。
+ *
+ * 台帳は PowerDowner のユーザー単位なので、誰の手元の話かを必ず添える。
  */
-export async function checkItems(candidates: FeedCandidate[]): Promise<CheckResult[]> {
+export async function checkItems(userId: number, candidates: FeedCandidate[]): Promise<CheckResult[]> {
   if (candidates.length === 0) return [];
   const body = {
+    userId,
     items: candidates.map((c) => ({
       urls: c.urls,
       sourceKey: c.sourceKey,
@@ -90,11 +115,28 @@ export async function checkItems(candidates: FeedCandidate[]): Promise<CheckResu
   return res.results ?? [];
 }
 
-/** 「これは既に持っている」を PowerDowner の台帳へ登録する */
+/**
+ * 「これは既に持っている」を PowerDowner の台帳へ登録する。
+ * 戻せるように、どの行がどのレコードになったかを sourceKey で対応付けて返す。
+ */
 export async function registerHave(
-  items: { title: string | null; author: string | null; volumes: string | null }[]
-): Promise<{ created: unknown[]; skipped: number }> {
-  return post('/api/items', { items }, '所持の登録に失敗しました');
+  userId: number,
+  items: { sourceKey: string; title: string | null; author: string | null; volumes: string | null }[]
+): Promise<{ created: { id: number; sourceKey: string | null }[]; skipped: number }> {
+  return post('/api/items', { userId, items }, '所持の登録に失敗しました');
+}
+
+/** 所持登録の取り消し。対象外にしたものを投入対象へ戻すときに使う */
+export async function deleteLibraryItem(itemId: number): Promise<void> {
+  try {
+    await client.delete(`${config.powerdowner.baseUrl}/api/items/${itemId}`, {
+      headers: config.powerdowner.token ? { Authorization: `Bearer ${config.powerdowner.token}` } : {},
+    });
+  } catch (err: any) {
+    // 既に消えている (404) なら目的は達しているので通す
+    if (err?.response?.status === 404) return;
+    throw new Error(`PowerDowner の所持登録を取り消せません: ${err?.message || err}`);
+  }
 }
 
 /**

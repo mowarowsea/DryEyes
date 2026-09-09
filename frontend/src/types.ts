@@ -228,7 +228,10 @@ export interface FeedCandidate {
     rawText: string;
   };
   foundAt: string;
+  /** pending: 投入対象 / sent: 投入済み / dismissed: 対象外 */
   status: 'pending' | 'sent' | 'dismissed';
+  /** 対象外にしたときに PowerDowner の台帳へ入れたレコード。戻すときに消す先 */
+  libraryItemId?: number | null;
   sentAt?: string | null;
   resultNote?: string | null;
 }
@@ -242,13 +245,28 @@ export interface FeedCandidateWithState extends FeedCandidate {
   powerdowner: {
     state: 'new' | 'skip' | 'merge';
     reason: string | null;
+    /** 向こうが元の文字列から読み取った巻数。取れていなければ null */
+    volumeFrom: number | null;
+    volumeTo: number | null;
   } | null;
 }
 
+/** PowerDowner 側の投入先ユーザー */
+export interface PowerdownerUser {
+  id: number;
+  name: string;
+  defaultDir: string | null;
+}
+
 export interface FeedConfig {
-  enabled: boolean;
   /** 次の更新分から、人の確認なしで投入する */
   autoSend: boolean;
+  /**
+   * 作者とタイトル。監視 1 件 = 1 作品なので、行ではなく作品ページの属性として持つ。
+   * 行に載っているのは巻数だけ、というサイトが多い。
+   */
+  author: string | null;
+  title: string | null;
   itemPattern: string | null;
   userId: number | null;
   destDir: string | null;
@@ -256,10 +274,12 @@ export interface FeedConfig {
 
 export interface FeedScanResult {
   watchId: string;
-  status: 'disabled' | 'no-selector' | 'initialized' | 'unchanged' | 'scanned' | 'collected';
+  status: 'no-selector' | 'initialized' | 'unchanged' | 'scanned' | 'collected';
   added: number;
   addedLines?: number;
   extracted?: number;
+  /** 取れた要素の中身 (先頭数件)。候補が 0 件だった原因の切り分け用 */
+  samples?: { text: string; urls: number }[];
 }
 
 export interface FeedSendSummary {

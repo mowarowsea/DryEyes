@@ -250,18 +250,19 @@ XPath 配下の `<a>` から取る**。`hasAnySelectorMatch()` と同じ仕組�
 | `services/powerdowner.ts` | PowerDowner への POST と、応答を sourceKey ごとの説明に畳む | 済 |
 | `services/feedSend.ts` | 監視ごとにまとめ、上限で分割して送り、結果を候補に書き戻す | 済 |
 | `routes/feed.ts` | 候補の一覧・見送り・投入、設定の取得と更新、スキャンの実行 | 済 |
-| `services/feedAutoScan.ts` | 30 分ごとの取り込みと、`autoSend` が立っている監視の自動投入 | 済 |
+| `services/feedAutoScan.ts` | 監視のチェックに追いついて取り込み、`autoSend` が立っていれば自動投入 | 済 |
 | `components/FeedModal.tsx` | 設定・取り込み・候補の確認を 1 画面に並べたモーダル | 済 |
 
 API:
 
 ```
 GET    /api/feed/candidates?status=pending      候補一覧 (自分が持つ監視のものだけ)
-POST   /api/feed/candidates/:id/dismiss         見送る
 POST   /api/feed/candidates/send                選んだ候補を PowerDowner へ送る
-POST   /api/feed/candidates/have                選んだ候補を「所持済み」として向こうの台帳へ登録する
+POST   /api/feed/candidates/exclude             対象外にする (所持済みなら向こうの台帳へも登録)
+POST   /api/feed/candidates/:id/restore         対象外を取り消して戻す
+GET    /api/feed/powerdowner/users              投入先に選べる PowerDowner のユーザー
 GET    /api/feed/watches/:watchId               投入設定
-PUT    /api/feed/watches/:watchId               投入設定の更新 (enabled / itemPattern / userId / destDir)
+PUT    /api/feed/watches/:watchId               投入設定の更新 (autoSend / author / title / userId / destDir / itemPattern)
 POST   /api/feed/watches/:watchId/scan          増分から候補を作る ({ all: true } でページ全体)
 ```
 
@@ -272,15 +273,24 @@ POST   /api/feed/watches/:watchId/scan          増分から候補を作る ({ a
 1. 登録直後は「全件を洗い出す」でページに並んでいるものを丸ごと候補にする。
    PowerDowner に問い合わせて「もう持っているか」を各候補に添えるので、
    **どれが既にあって・どれを今回落とすか**をその場で決められる。
-   既にあるものは「所持済みにする」で向こうの台帳へ送っておくと、以後は弾かれる
-2. 決まったら `autoSend` を立てる。次の更新分からは 30 分ごとの巡回
-   (`feedAutoScan.ts`) が増分を取り込んで自動で投入する
+   落としたくないものは行の × で対象外にする。PowerDowner の台帳へも登録されるので、以後は弾かれる
+2. 決まったら `autoSend` を立てる。次の更新分からは自動で投入される
 
-「候補を作る (`enabled`)」と「確認なしで送る (`autoSend`)」を別の設定にしてあるのは、
-取り込みだけ回して溜め、抽出ルール（URL・作者・巻数）の当たり外れを見てから任せる、
-という順に進められるようにするため。
+**取り込みの周期は持たない。** 「いつ見に行くか」は監視ごとのチェック間隔
+(changedetection.io 側の設定) が既に持っているので、`feedAutoScan.ts` はその結果に
+追いつくだけにする — 監視一覧の `lastChanged` が投入ポインタを越えた監視だけを見に行く。
+この巡回の間隔は「更新に気づくまでの遅れ」でしかなく、取り込みそのものの周期ではない。
+
+専用の「巡回する / しない」スイッチも持たない。**投入先ユーザーが決まっていること**を連携の印にする —
+設定画面で投入先を選ぶこと自体が「この監視はダウンロードに繋ぐ」という意思表示だから。
+人が決めるのは「確認してから送るか、そのまま送るか (`autoSend`)」だけ。
 
 投入に失敗した候補は `pending` のまま残る。次の巡回が拾い直すので、リトライ機構は要らない。
+
+**PowerDowner の取得済み台帳はユーザー単位。** 所持の判定 (`/api/items/check`) も
+所持の登録 (`/api/items`) も `userId` を要求するので、DryEyes 側は監視ごとの投入先で
+束ねてから送る (`groupByPowerdownerUser`)。投入先が未設定の監視の候補は、誰の手元の話か
+決まらないので判定を付けずに出す。
 
 - **既読フラグ（`viewState.ts`）を流用しないこと。** 「候補に積んだら既読になって人が気づかない」
   「人が先に見たら候補に積まれない」のどちらかで必ず事故る。専用のポインタを別に持つ

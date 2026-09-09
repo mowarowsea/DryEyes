@@ -16,10 +16,10 @@ const store = new JsonStore<FeedStoreData>('watch-feed.json', {
 });
 
 const DEFAULT_CONFIG: FeedConfig = {
-  // 登録しただけの監視が勝手に候補を溜めないよう、既定は無効にしておく
-  enabled: false,
   // 抽出の当たり外れを見てから任せる。最初は必ず人が確認する
   autoSend: false,
+  author: null,
+  title: null,
   itemPattern: null,
   userId: null,
   destDir: null,
@@ -124,11 +124,25 @@ export function markSent(id: string, note: string | null): FeedCandidate | null 
   return next;
 }
 
-/** 見送る。sourceKey は残るので、同じ行が次のスキャンで復活することはない */
-export function dismissCandidate(id: string): FeedCandidate | null {
+/**
+ * 対象外にする。sourceKey は残るので、同じ行が次のスキャンで復活することはない。
+ * libraryItemId は PowerDowner の台帳に入れたレコード — 戻すときに消す先。
+ */
+export function dismissCandidate(id: string, libraryItemId: number | null = null): FeedCandidate | null {
   const current = getCandidate(id);
   if (!current) return null;
-  const next: FeedCandidate = { ...current, status: 'dismissed' };
+  const next: FeedCandidate = { ...current, status: 'dismissed', libraryItemId };
+  store.update((data) => {
+    data.candidates[id] = next;
+  });
+  return next;
+}
+
+/** 対象外を取り消して、投入対象へ戻す */
+export function restoreCandidate(id: string): FeedCandidate | null {
+  const current = getCandidate(id);
+  if (!current) return null;
+  const next: FeedCandidate = { ...current, status: 'pending', libraryItemId: null };
   store.update((data) => {
     data.candidates[id] = next;
   });

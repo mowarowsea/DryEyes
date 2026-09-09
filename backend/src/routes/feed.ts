@@ -9,15 +9,16 @@ import {
   getCandidate,
   getFeedConfig,
   listCandidates,
+  restoreCandidate,
   setFeedConfig,
 } from '../services/feedStore.js';
 import { FeedCandidate, FeedCandidateWithState } from '../types/index.js';
-import { checkItems, registerHave } from '../services/powerdowner.js';
+import { checkItems, deleteLibraryItem, listUsers, registerHave } from '../services/powerdowner.js';
 
 // PowerDowner への投入候補まわり。
 //
-// 当面は自動投入しない。ここで候補を確認し、押されたものだけを送る
-// (ARCHITECTURE.md 5 章「承認フローと投入ポインタ」)。投入そのものは未実装。
+// 区分けは対象／対象外の 2 つ。振り分けを間違えても対象外から戻せる
+// (ARCHITECTURE.md 5 章「承認フローと投入ポインタ」)。
 
 export const feedRouter = Router();
 feedRouter.use(requireAuth);
@@ -31,6 +32,23 @@ function ensureOwned(watchId: string, userId: string, res: Response): boolean {
 
 const STATUSES: FeedCandidate['status'][] = ['pending', 'sent', 'dismissed'];
 
+/**
+ * 候補を投入先の PowerDowner ユーザーごとに束ねる。
+ * 台帳がユーザー単位なので、所持の判定も登録もユーザーを跨げない。
+ * 投入先が未設定の監視の候補は、誰の手元の話か決まらないので落とす。
+ */
+function groupByPowerdownerUser(candidates: FeedCandidate[]): Map<number, FeedCandidate[]> {
+  const byUser = new Map<number, FeedCandidate[]>();
+  for (const candidate of candidates) {
+    const userId = getFeedConfig(candidate.watchId).userId;
+    if (userId === null) continue;
+    const list = byUser.get(userId) ?? [];
+    list.push(candidate);
+    byUser.set(userId, list);
+  }
+  return byUser;
+}
+
 feedRouter.get('/candidates', async (req, res) => {
   const raw = String(req.query.status ?? 'pending');
   const status = STATUSES.includes(raw as FeedCandidate['status'])
@@ -43,13 +61,28 @@ feedRouter.get('/candidates', async (req, res) => {
   // 「もう持っているか」は PowerDowner の台帳しか知らないので聞きに行く。
   // 落ちていても一覧そのものは出す (判定が付かないだけ) — ここで失敗させると
   // PowerDowner を起動していない間は候補を眺めることもできなくなる
-  const checks = new Map<string, { state: 'new' | 'skip' | 'merge'; reason: string | null }>();
-  try {
-    for (const result of await checkItems(candidates)) {
-      if (result.sourceKey) checks.set(result.sourceKey, { state: result.state, reason: result.reason });
+  //
+  // 台帳は PowerDowner のユーザー単位なので、投入先ユーザーごとに分けて聞く。
+  // 投入先が未設定の監視は誰の手元の話か決まらないので、判定を付けずに出す
+  const checks = new Map<
+    string,
+    { state: 'new' | 'skip' | 'merge'; reason: string | null; volumeFrom: number | null; volumeTo: number | null }
+  >();
+  for (const [userId, group] of groupByPowerdownerUser(candidates)) {
+    try {
+      for (const result of await checkItems(userId, group)) {
+        if (result.sourceKey) {
+          checks.set(result.sourceKey, {
+            state: result.state,
+            reason: result.reason,
+            volumeFrom: result.volumeFrom,
+            volumeTo: result.volumeTo,
+          });
+        }
+      }
+    } catch {
+      /* 判定なしで返す */
     }
-  } catch {
-    /* 判定なしで返す */
   }
 
   const withState: FeedCandidateWithState[] = candidates.map((c) => ({
@@ -60,48 +93,11 @@ feedRouter.get('/candidates', async (req, res) => {
 });
 
 /**
- * 「これは既に持っている」を PowerDowner の台帳へ登録し、候補を片付ける。
- * 巻数を読めないものは向こうの重なり判定に参加できないため、登録されず見送りになる。
- */
-feedRouter.post('/candidates/have', async (req, res) => {
-  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
-  if (ids.length === 0) {
-    res.status(400).json({ error: '所持済みにする候補を選んでください' });
-    return;
-  }
-
-  const targets = ids
-    .map((id) => getCandidate(id))
-    .filter((c): c is FeedCandidate => !!c && isOwnedBy(c.watchId, req.user!.id));
-
-  try {
-    const result = await registerHave(
-      targets.map((c) => ({ title: c.meta.title ?? c.meta.rawText, author: c.meta.author, volumes: c.meta.volume }))
-    );
-    // 台帳に入ったかどうかに関わらず候補からは外す。
-    // 巻数が読めないものを候補に残しても、次に押しても同じ結果にしかならない
-    for (const candidate of targets) dismissCandidate(candidate.id);
-    res.json({ registered: result.created.length, skipped: result.skipped, dismissed: targets.length });
-  } catch (err: any) {
-    res.status(502).json({ error: err.message || '所持の登録に失敗しました' });
-  }
-});
-
-feedRouter.post('/candidates/:id/dismiss', (req, res) => {
-  const candidate = getCandidate(req.params.id);
-  if (!candidate || !ensureOwned(candidate.watchId, req.user!.id, res)) {
-    if (!candidate) res.status(404).json({ error: 'Candidate not found' });
-    return;
-  }
-  res.json(dismissCandidate(req.params.id));
-});
-
-/**
  * 選んだ候補を PowerDowner へ送る。
  * 監視ごとの設定 (投入先ユーザー・保存先) でまとめ、上限を超える分は分割して順に送る。
  */
 feedRouter.post('/candidates/send', async (req, res) => {
-  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
   if (ids.length === 0) {
     res.status(400).json({ error: '投入する候補を選んでください' });
     return;
@@ -110,6 +106,84 @@ feedRouter.post('/candidates/send', async (req, res) => {
     res.json(await sendCandidates(ids, req.user!.id));
   } catch (err: any) {
     res.status(500).json({ error: '投入に失敗しました', message: err.message });
+  }
+});
+
+/**
+ * 対象外にする。PowerDowner の台帳へ「所持済み」として登録したうえで候補を畳む。
+ *
+ * 「今は落とさないが、あとで落とすかもしれない」という中間状態は置いていない。
+ * 対象か対象外かの 2 つで足りるので、迷いどころを増やさない。
+ * 戻せるように、登録した台帳 ID を候補に控えておく。
+ */
+feedRouter.post('/candidates/exclude', async (req, res) => {
+  const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+  if (ids.length === 0) {
+    res.status(400).json({ error: '対象外にする候補を選んでください' });
+    return;
+  }
+
+  const targets = ids
+    .map((id) => getCandidate(id))
+    .filter((c): c is FeedCandidate => !!c && isOwnedBy(c.watchId, req.user!.id));
+
+  try {
+    // 台帳はユーザー単位。監視ごとに投入先が違いうるので、まとめてから送る
+    const itemIdOf = new Map<string, number>();
+    let registered = 0;
+    let skipped = 0;
+    for (const [userId, group] of groupByPowerdownerUser(targets)) {
+      const result = await registerHave(
+        userId,
+        group.map((c) => ({
+          sourceKey: c.sourceKey,
+          title: c.meta.title ?? c.meta.rawText,
+          author: c.meta.author,
+          volumes: c.meta.volume,
+        }))
+      );
+      for (const item of result.created) {
+        if (item.sourceKey) itemIdOf.set(item.sourceKey, item.id);
+      }
+      registered += result.created.length;
+      skipped += result.skipped;
+    }
+    // 台帳に入ったかどうかに関わらず候補からは外す。
+    // 巻数を読めないもの・投入先が未設定のものを残しても、次に押して結果が変わるわけではない
+    for (const candidate of targets) {
+      dismissCandidate(candidate.id, itemIdOf.get(candidate.sourceKey) ?? null);
+    }
+    res.json({ registered, skipped, excluded: targets.length });
+  } catch (err: any) {
+    res.status(502).json({ error: '所持の登録に失敗しました', message: err.message });
+  }
+});
+
+/** 対象外を取り消す。台帳へ入れたぶんも一緒に消して、元の状態へ戻す */
+feedRouter.post('/candidates/:id/restore', async (req, res) => {
+  const candidate = getCandidate(req.params.id);
+  if (!candidate) {
+    res.status(404).json({ error: 'Candidate not found' });
+    return;
+  }
+  if (!ensureOwned(candidate.watchId, req.user!.id, res)) return;
+
+  if (candidate.libraryItemId) {
+    try {
+      await deleteLibraryItem(candidate.libraryItemId);
+    } catch (err: any) {
+      res.status(502).json({ error: '所持登録を取り消せませんでした', message: err.message });
+      return;
+    }
+  }
+  res.json(restoreCandidate(req.params.id));
+});
+
+feedRouter.get('/powerdowner/users', async (_req, res) => {
+  try {
+    res.json(await listUsers());
+  } catch (err: any) {
+    res.status(502).json({ error: 'PowerDowner のユーザー一覧を取れません', message: err.message });
   }
 });
 
@@ -123,13 +197,18 @@ feedRouter.put('/watches/:watchId', (req, res) => {
   const body = req.body ?? {};
   const patch: Record<string, unknown> = {};
 
-  if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
   if (body.autoSend !== undefined) patch.autoSend = Boolean(body.autoSend);
   if (body.userId !== undefined) {
     patch.userId = body.userId === null ? null : Number(body.userId);
     if (patch.userId !== null && !Number.isInteger(patch.userId)) {
       res.status(400).json({ error: 'userId は整数で指定してください' });
       return;
+    }
+  }
+  for (const key of ['author', 'title'] as const) {
+    if (body[key] !== undefined) {
+      const value = body[key] === null ? null : String(body[key]).trim();
+      patch[key] = value || null;
     }
   }
   if (body.destDir !== undefined) {

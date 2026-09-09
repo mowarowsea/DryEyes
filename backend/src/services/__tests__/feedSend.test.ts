@@ -51,7 +51,7 @@ describe('notesBySourceKey', () => {
 describe('sendCandidates', () => {
   it('should send with the userId and destDir configured on the watch', async () => {
     assignOwner('sw1', OWNER);
-    setFeedConfig('sw1', { enabled: true, userId: 7, destDir: 'D:\manga' });
+    setFeedConfig('sw1', { userId: 7, destDir: 'D:\manga' });
     const [candidate] = addCandidates('sw1', [itemOf('[著者] 作品名 第01巻')]);
 
     const send = vi.fn(async (input: any) => okResponse(input.candidates));
@@ -66,7 +66,7 @@ describe('sendCandidates', () => {
 
   it('should record a skip from PowerDowner as the result, not as a failure', async () => {
     assignOwner('sw2', OWNER);
-    setFeedConfig('sw2', { enabled: true, userId: 1 });
+    setFeedConfig('sw2', { userId: 1 });
     const [candidate] = addCandidates('sw2', [itemOf('[著者] 作品名 第02巻')]);
 
     const send = vi.fn(async (input: any) => ({
@@ -82,7 +82,7 @@ describe('sendCandidates', () => {
 
   it('should split into batches instead of letting PowerDowner truncate', async () => {
     assignOwner('sw3', OWNER);
-    setFeedConfig('sw3', { enabled: true, userId: 1 });
+    setFeedConfig('sw3', { userId: 1 });
     const added = addCandidates(
       'sw3',
       Array.from({ length: 25 }, (_, i) => itemOf(`[著者] 作品名 第${100 + i}巻`))
@@ -99,7 +99,6 @@ describe('sendCandidates', () => {
 
   it('should refuse to send when the watch has no PowerDowner user', async () => {
     assignOwner('sw4', OWNER);
-    setFeedConfig('sw4', { enabled: true });
     const [candidate] = addCandidates('sw4', [itemOf('[著者] 作品名 第04巻')]);
 
     const send = vi.fn();
@@ -112,7 +111,7 @@ describe('sendCandidates', () => {
 
   it('should ignore candidates belonging to someone else', async () => {
     assignOwner('sw5', 'another-user');
-    setFeedConfig('sw5', { enabled: true, userId: 1 });
+    setFeedConfig('sw5', { userId: 1 });
     const [candidate] = addCandidates('sw5', [itemOf('[著者] 作品名 第05巻')]);
 
     const send = vi.fn();
@@ -124,7 +123,7 @@ describe('sendCandidates', () => {
 
   it('should not send the same candidate twice', async () => {
     assignOwner('sw6', OWNER);
-    setFeedConfig('sw6', { enabled: true, userId: 1 });
+    setFeedConfig('sw6', { userId: 1 });
     const [candidate] = addCandidates('sw6', [itemOf('[著者] 作品名 第06巻')]);
 
     const send = vi.fn(async (input: any) => okResponse(input.candidates));
@@ -137,7 +136,7 @@ describe('sendCandidates', () => {
 
   it('should leave a candidate pending when PowerDowner did not report it', async () => {
     assignOwner('sw7', OWNER);
-    setFeedConfig('sw7', { enabled: true, userId: 1 });
+    setFeedConfig('sw7', { userId: 1 });
     const [candidate] = addCandidates('sw7', [itemOf('[著者] 作品名 第07巻')]);
 
     const send = vi.fn(async () => ({ created: [], merged: [], skipped: [], invalid: [], truncated: 1 }));
@@ -151,8 +150,8 @@ describe('sendCandidates', () => {
   it('should keep going when one watch fails', async () => {
     assignOwner('sw8', OWNER);
     assignOwner('sw9', OWNER);
-    setFeedConfig('sw8', { enabled: true, userId: 1 });
-    setFeedConfig('sw9', { enabled: true, userId: 2 });
+    setFeedConfig('sw8', { userId: 1 });
+    setFeedConfig('sw9', { userId: 2 });
     const [bad] = addCandidates('sw8', [itemOf('[著者] 作品名 第08巻')]);
     const [good] = addCandidates('sw9', [itemOf('[著者] 作品名 第09巻')]);
 

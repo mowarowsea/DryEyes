@@ -10,7 +10,7 @@ process.env.DATA_DIR = tmpDir;
 
 const {
   getFeedConfig, setFeedConfig, getPointer, setPointer,
-  addCandidates, listCandidates, markSent, dismissCandidate,
+  addCandidates, listCandidates, markSent, dismissCandidate, restoreCandidate,
   clearFeedState, pruneFeedState,
 } = await import('../feedStore.js');
 
@@ -22,16 +22,17 @@ const meta = (rawText: string) => ({ title: '作品名', author: '著者', volum
 const item = (rawText: string, urls = ['https://a.example/3']) => ({ text: rawText, urls, meta: meta(rawText) });
 
 describe('feed config', () => {
-  it('should default to disabled so a new watch never feeds on its own', () => {
+  it('should default to asking before it sends anything', () => {
     expect(getFeedConfig('w-new')).toEqual({
-      enabled: false, autoSend: false, itemPattern: null, userId: null, destDir: null,
+      autoSend: false, author: null, title: null,
+      itemPattern: null, userId: null, destDir: null,
     });
   });
 
   it('should merge partial updates', () => {
-    setFeedConfig('w-cfg', { enabled: true });
+    setFeedConfig('w-cfg', { autoSend: true });
     setFeedConfig('w-cfg', { userId: 3 });
-    expect(getFeedConfig('w-cfg')).toMatchObject({ enabled: true, userId: 3, itemPattern: null });
+    expect(getFeedConfig('w-cfg')).toMatchObject({ autoSend: true, userId: 3, itemPattern: null });
   });
 });
 
@@ -75,6 +76,35 @@ describe('addCandidates', () => {
   });
 });
 
+describe('exclude and restore', () => {
+  it('should remember which ledger row an excluded candidate created', () => {
+    // 戻すときに、向こうの台帳からその 1 件だけを消す必要がある
+    const [added] = addCandidates('wx', [item('[著者] 作品名 第21巻')]);
+    dismissCandidate(added.id, 42);
+
+    const [excluded] = listCandidates({ watchId: 'wx', status: 'dismissed' });
+    expect(excluded.libraryItemId).toBe(42);
+  });
+
+  it('should put a restored candidate back in the pending list', () => {
+    const [added] = addCandidates('wy', [item('[著者] 作品名 第23巻')]);
+    dismissCandidate(added.id, 7);
+
+    const restored = restoreCandidate(added.id);
+    expect(restored?.status).toBe('pending');
+    // 台帳の行はもう消してあるので、控えも落とす
+    expect(restored?.libraryItemId).toBeNull();
+    expect(listCandidates({ watchId: 'wy', status: 'pending' })).toHaveLength(1);
+    expect(listCandidates({ watchId: 'wy', status: 'dismissed' })).toHaveLength(0);
+  });
+
+  it('should not resurrect an excluded candidate on the next scan', () => {
+    const [added] = addCandidates('wz', [item('[著者] 作品名 第25巻')]);
+    dismissCandidate(added.id, null);
+    expect(addCandidates('wz', [item('[著者] 作品名 第25巻')])).toHaveLength(0);
+  });
+});
+
 describe('markSent', () => {
   it('should record the reply from PowerDowner, including a skip', () => {
     const [added] = addCandidates('w6', [item('[著者] 作品名 第11巻')]);
@@ -92,13 +122,13 @@ describe('markSent', () => {
 describe('cleanup', () => {
   it('should drop everything belonging to a deleted watch', () => {
     addCandidates('w7', [item('[著者] 作品名 第13巻')]);
-    setFeedConfig('w7', { enabled: true });
+    setFeedConfig('w7', { userId: 5 });
     setPointer('w7', 123);
 
     clearFeedState('w7');
     expect(listCandidates({ watchId: 'w7' })).toHaveLength(0);
     expect(getPointer('w7')).toBeNull();
-    expect(getFeedConfig('w7').enabled).toBe(false);
+    expect(getFeedConfig('w7').userId).toBeNull();
   });
 
   it('should prune watches that disappeared from changedetection.io', () => {

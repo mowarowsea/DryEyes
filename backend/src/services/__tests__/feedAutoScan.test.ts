@@ -8,7 +8,7 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dryeyes-autoscan-test-'));
 process.env.DATA_DIR = tmpDir;
 
 const { runFeedScan, resetFeedAutoScanState } = await import('../feedAutoScan.js');
-const { setFeedConfig, addCandidates } = await import('../feedStore.js');
+const { setFeedConfig, setPointer, addCandidates } = await import('../feedStore.js');
 const { assignOwner } = await import('../ownership.js');
 
 afterAll(() => {
@@ -19,13 +19,13 @@ beforeEach(() => {
   resetFeedAutoScanState();
 });
 
-const watchOf = (id: string, paused = false): WatchModel => ({
+const watchOf = (id: string, extra: Partial<WatchModel> = {}): WatchModel => ({
   id,
   url: 'https://example.com/list',
   title: id,
   fetchBackend: 'html_webdriver',
   checkIntervalMinutes: 180,
-  paused,
+  paused: false,
   lastChecked: null,
   lastChanged: null,
   hasError: false,
@@ -34,6 +34,7 @@ const watchOf = (id: string, paused = false): WatchModel => ({
   subtractedFilters: [],
   notificationTopic: 't',
   snapshotCount: 2,
+  ...extra,
 });
 
 const scanned = (added: number) =>
@@ -52,7 +53,8 @@ const seedCandidate = (watchId: string) =>
   ]);
 
 describe('runFeedScan', () => {
-  it('should skip watches that are not enabled', async () => {
+  it('should ignore watches that are not wired to PowerDowner', async () => {
+    // 投入先ユーザーが決まっていることが連携の印。設定していない監視は追いかけない
     const scan = scanned(0);
     const summary = await runFeedScan({
       listWatches: async () => [watchOf('a1')],
@@ -64,14 +66,57 @@ describe('runFeedScan', () => {
   });
 
   it('should skip paused watches (no snapshot will be added anyway)', async () => {
-    setFeedConfig('a2', { enabled: true });
+    setFeedConfig('a2', { userId: 1 });
     const scan = scanned(1);
-    await runFeedScan({ listWatches: async () => [watchOf('a2', true)], scan, send: sentOk() as never });
+    await runFeedScan({
+      listWatches: async () => [watchOf('a2', { paused: true })],
+      scan,
+      send: sentOk() as never,
+    });
     expect(scan).not.toHaveBeenCalled();
   });
 
+  it('should skip a watch that has not changed since it was last scanned', async () => {
+    // 取り込みの周期はここでは決めない。監視のチェックで実際に動いたぶんだけ追いかける
+    setFeedConfig('a9', { userId: 1 });
+    setPointer('a9', 200);
+
+    const scan = scanned(1);
+    await runFeedScan({
+      listWatches: async () => [watchOf('a9', { lastChanged: 200 })],
+      scan,
+      send: sentOk() as never,
+    });
+    expect(scan).not.toHaveBeenCalled();
+  });
+
+  it('should follow the watch as soon as its own check finds a change', async () => {
+    setFeedConfig('a10', { userId: 1 });
+    setPointer('a10', 200);
+
+    const scan = scanned(1);
+    const summary = await runFeedScan({
+      listWatches: async () => [watchOf('a10', { lastChanged: 300 })],
+      scan,
+      send: sentOk() as never,
+    });
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(summary.added).toBe(1);
+  });
+
+  it('should scan a watch that has never been scanned, to place its pointer', async () => {
+    setFeedConfig('a11', { userId: 1 });
+    const scan = scanned(0);
+    await runFeedScan({
+      listWatches: async () => [watchOf('a11')],
+      scan,
+      send: sentOk() as never,
+    });
+    expect(scan).toHaveBeenCalledTimes(1);
+  });
+
   it('should collect candidates but not send them while autoSend is off', async () => {
-    setFeedConfig('a3', { enabled: true, userId: 1 });
+    setFeedConfig('a3', { userId: 1 });
     assignOwner('a3', 'user-1');
     seedCandidate('a3');
 
@@ -87,7 +132,7 @@ describe('runFeedScan', () => {
   });
 
   it('should send pending candidates once autoSend is on', async () => {
-    setFeedConfig('a4', { enabled: true, autoSend: true, userId: 1 });
+    setFeedConfig('a4', { autoSend: true, userId: 1 });
     assignOwner('a4', 'user-1');
     seedCandidate('a4');
 
@@ -105,7 +150,7 @@ describe('runFeedScan', () => {
   });
 
   it('should not send when the watch has no owner', async () => {
-    setFeedConfig('a5', { enabled: true, autoSend: true, userId: 1 });
+    setFeedConfig('a5', { autoSend: true, userId: 1 });
     seedCandidate('a5');
 
     const send = sentOk();
@@ -114,8 +159,8 @@ describe('runFeedScan', () => {
   });
 
   it('should keep going when one watch throws', async () => {
-    setFeedConfig('a6', { enabled: true });
-    setFeedConfig('a7', { enabled: true });
+    setFeedConfig('a6', { userId: 1 });
+    setFeedConfig('a7', { userId: 1 });
     const scan = vi.fn(async (watch: WatchModel) => {
       if (watch.id === 'a6') throw new Error('ブラウザに接続できません');
       return { watchId: watch.id, status: 'scanned' as const, added: 2 };
@@ -133,7 +178,7 @@ describe('runFeedScan', () => {
   });
 
   it('should not start a second pass while one is running', async () => {
-    setFeedConfig('a8', { enabled: true });
+    setFeedConfig('a8', { userId: 1 });
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
