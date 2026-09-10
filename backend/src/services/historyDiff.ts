@@ -59,3 +59,30 @@ export async function buildHistoryDiff(
     ...diffSnapshots(before, after),
   };
 }
+
+/**
+ * 「前回見てから最新まで」をまとめて見せるときの比較元スナップショットを選ぶ。
+ * history は新しい順。
+ *
+ * 未読の更新が複数溜まっていても 1 つの差分で見せたいので、比較元は既読にした時点まで遡る。
+ * - 既読の記録があれば、その時点以前で最も新しいスナップショット
+ * - 既読の記録が無い（一度も見ていない）／既読時点のスナップショットが履歴から消えている
+ *   ときは、最も古いスナップショット
+ *
+ * 比べる相手が無い（履歴が 1 件だけ／最新まで確認済み）ときは null。
+ */
+export function selectUnviewedBaseline(
+  history: WatchHistoryItem[],
+  viewedSnapshotTimestamp: number | null
+): WatchHistoryItem | null {
+  if (history.length < 2) return null;
+
+  const latest = history[0];
+  const viewed =
+    viewedSnapshotTimestamp === null
+      ? undefined
+      : history.find((item) => item.timestamp <= viewedSnapshotTimestamp);
+
+  const baseline = viewed ?? history[history.length - 1];
+  return baseline.timestamp === latest.timestamp ? null : baseline;
+}

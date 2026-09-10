@@ -78,6 +78,8 @@ export const DiffModal: React.FC<DiffModalProps> = ({
   if (!isOpen || !watch) return null;
 
   const hasChanges = !!diff && diff.lines.length > 0;
+  // 未読が複数溜まっているときは、その全部をまとめた差分を出している旨を添える
+  const mergedUpdates = diff?.from && (watch.unviewedCount ?? 0) > 1 ? watch.unviewedCount! : 0;
   // 初回スナップショットのみ、または既に確認済みで見るべき差分が無いときは現在値だけを見せる
   const showsCurrentOnly = !!diff && (diff.snapshotCount <= 1 || (diff.currentPreview?.length ?? 0) > 0);
   const isInitialOnly = !!diff && diff.snapshotCount <= 1;
@@ -105,6 +107,9 @@ export const DiffModal: React.FC<DiffModalProps> = ({
               </>
             ) : (
               <span>{formatDateTime(diff.to)} 時点</span>
+            )}
+            {mergedUpdates > 0 && (
+              <span className="ml-1.5 text-slate-400 dark:text-slate-500">（更新 {mergedUpdates} 回分）</span>
             )}
           </span>
 

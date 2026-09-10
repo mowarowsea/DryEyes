@@ -18,7 +18,7 @@ import {
   pruneRedirectState,
 } from '../services/redirectReview.js';
 import { findDuplicateWatch } from '../services/duplicate.js';
-import { buildHistoryDiff } from '../services/historyDiff.js';
+import { buildHistoryDiff, selectUnviewedBaseline } from '../services/historyDiff.js';
 import { acceptPendingRedirect, dismissPendingRedirect } from '../services/redirectScan.js';
 import {
   clearCardImage,
@@ -379,6 +379,7 @@ watchesRouter.get('/:id/diff', async (req, res) => {
     const history = await changedetectionClient.getHistory(watchId);
     const state = getViewState(userId, watchId);
     const lastViewedAt = state?.viewedAt ?? null;
+    const lastViewedSnapshot = state?.snapshotTimestamp ?? null;
 
     if (history.length === 0) {
       const empty: WatchDiffResponse = {
@@ -390,10 +391,14 @@ watchesRouter.get('/:id/diff', async (req, res) => {
 
     const latest = history[0];
 
+    // 比較元は「既読にした時点以前で最も新しいスナップショット」。未読の更新が複数溜まって
+    // いても、その全部を 1 つの差分として見せる。一度も見ていなければ初回まで遡る。
+    const upToDate = !!state && state.snapshotTimestamp >= latest.timestamp;
+    const baseline = upToDate ? null : selectUnviewedBaseline(history, lastViewedSnapshot);
+
     // 比較対象が無い（初回スナップショットのみ）か、最新まで確認済みで見るべき変更が残っていない場合は、
     // 過去の差分を蒸し返さず現在保持している値だけを返す。
-    const upToDate = !!state && state.snapshotTimestamp >= latest.timestamp;
-    if (history.length === 1 || upToDate) {
+    if (!baseline) {
       const current = await changedetectionClient.getSnapshot(watchId, latest.timestamp);
       const currentOnly: WatchDiffResponse = {
         watchId, from: null, to: latest.timestamp, lines: [], added: 0, removed: 0, truncated: false,
@@ -402,14 +407,6 @@ watchesRouter.get('/:id/diff', async (req, res) => {
       };
       return res.json(currentOnly);
     }
-
-    // 比較元は「既読にした時点以前で最も新しいスナップショット」。
-    // 既読の記録が無い場合は直前のスナップショットと比較して直近の変更を見せる。
-    const viewedBaseline = state
-      ? history.find((h) => h.timestamp <= state.snapshotTimestamp)
-      : undefined;
-    const baseline =
-      viewedBaseline && viewedBaseline.timestamp !== latest.timestamp ? viewedBaseline : history[1];
 
     const [before, after] = await Promise.all([
       changedetectionClient.getSnapshot(watchId, baseline.timestamp),
