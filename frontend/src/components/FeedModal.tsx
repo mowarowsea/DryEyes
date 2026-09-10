@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Link2, Loader2, RefreshCw, RotateCcw, Send, Undo2, X } from 'lucide-react';
 import {
   FeedCandidateWithState,
@@ -10,6 +10,7 @@ import {
 import { api } from '../api';
 import { Modal } from './Modal';
 import { inputClass, selectClass, submitButtonClass } from '../ui';
+import { LabelParts, splitSharedAffixes } from '../candidateLabel';
 
 // 監視の増分から作った投入候補を確認して、PowerDowner へ送る画面。
 //
@@ -87,6 +88,31 @@ const volumeLabel = (candidate: FeedCandidateWithState): string | null => {
   return pd.volumeFrom === pd.volumeTo ? `第${pd.volumeFrom}巻` : `第${pd.volumeFrom}-${pd.volumeTo}巻`;
 };
 
+/**
+ * 行に出す名前。
+ *
+ * 作品名は行ではなく監視の属性なので、候補には今の設定が重ねて返る (feedStore の withFeedMeta)。
+ * それを主表示にすると一覧が同じ名前だけで埋まり、どれがどの巻か分からない。
+ * 行ごとに違うのは元のテキストなので、そちらを出す。
+ */
+const candidateLabel = (candidate: FeedCandidateWithState): string =>
+  candidate.meta.rawText || candidate.text || candidate.meta.title || '(テキストなし)';
+
+/**
+ * 元テキストを、一覧の中で共通する前後を薄めて出す。
+ * 同じ作品の並びは大半が共通なので、そのままでは違う 2 文字が埋もれる。
+ */
+const CandidateLabel: React.FC<{ parts: LabelParts; bodyClass: string }> = ({ parts, bodyClass }) => (
+  <p
+    className={`text-[11px] leading-tight break-all ${bodyClass}`}
+    title={`${parts.head}${parts.body}${parts.tail}`}
+  >
+    {parts.head && <span className="text-slate-400 dark:text-slate-500">{parts.head}</span>}
+    {parts.body}
+    {parts.tail && <span className="text-slate-400 dark:text-slate-500">{parts.tail}</span>}
+  </p>
+);
+
 export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) => {
   const [config, setConfig] = useState<FeedConfig | null>(null);
   const [users, setUsers] = useState<PowerdownerUser[]>([]);
@@ -146,6 +172,12 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     api.listPowerdownerUsers().then(setUsers).catch(() => setUsers([]));
   }, [isOpen, watch, load]);
 
+  // 「どこが違うか」は並んでいるものの間で決まるので、区分ごとに切り分ける。
+  // 下の読み込み中の分岐より前に置くこと (フックの数がレンダーで変わると React が落ちる)
+  const candidateLabels = useMemo(() => splitSharedAffixes(candidates.map(candidateLabel)), [candidates]);
+  const excludedLabels = useMemo(() => splitSharedAffixes(excluded.map(candidateLabel)), [excluded]);
+  const sentLabels = useMemo(() => splitSharedAffixes(sent.map(candidateLabel)), [sent]);
+
   if (!isOpen || !watch || !config) {
     return (
       <Modal isOpen={isOpen && !!watch} onClose={onClose} title="ダウンロード投入" subtitle={watch?.title}>
@@ -161,6 +193,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   const currentUser = users.find((u) => u.id === config.userId) ?? null;
   // 投入済みのうち、PowerDowner に見当たらないもの (向こうでジョブを消した分)
   const missingJobs = sent.filter(isMissingJob);
+
 
   const handleSave = async () => {
     setBusy('save');
@@ -469,7 +502,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
             )
           ) : (
             <ul className="space-y-1 max-h-64 overflow-y-auto">
-              {candidates.map((candidate) => {
+              {candidates.map((candidate, index) => {
                 const pd = candidate.powerdowner;
                 const badge = pd && pd.state !== 'new' ? STATE_BADGE[pd.state] : null;
                 const volume = volumeLabel(candidate);
@@ -481,9 +514,10 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                     className="flex items-start gap-2 px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 rounded"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] leading-tight text-slate-800 dark:text-slate-100 break-all">
-                        {candidate.meta.title ?? candidate.meta.rawText}
-                      </p>
+                      <CandidateLabel
+                        parts={candidateLabels[index]}
+                        bodyClass="text-slate-800 dark:text-slate-100"
+                      />
                       <p className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
                         <span className="flex items-center gap-0.5">
                           <Link2 className="w-2.5 h-2.5" />
@@ -498,7 +532,6 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                             巻数不明
                           </span>
                         )}
-                        {candidate.meta.author && <span className="truncate">{candidate.meta.author}</span>}
                       </p>
                     </div>
                     {badge && (
@@ -544,15 +577,16 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
 
             {excludedOpen && (
               <ul className="mt-1.5 space-y-1 max-h-40 overflow-y-auto">
-                {excluded.map((candidate) => (
+                {excluded.map((candidate, index) => (
                   <li
                     key={candidate.id}
                     className="flex items-center gap-2 px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 rounded"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400 break-all">
-                        {candidate.meta.title ?? candidate.meta.rawText}
-                      </p>
+                      <CandidateLabel
+                        parts={excludedLabels[index]}
+                        bodyClass="text-slate-500 dark:text-slate-400"
+                      />
                       {volumeLabel(candidate) && (
                         <p className="text-[10px] text-slate-400">{volumeLabel(candidate)}</p>
                       )}
@@ -607,7 +641,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
 
             {sentOpen && (
               <ul className="mt-1.5 space-y-1 max-h-52 overflow-y-auto">
-                {sent.map((candidate) => {
+                {sent.map((candidate, index) => {
                   const badge = candidate.powerdowner
                     ? isMissingJob(candidate)
                       ? SENT_BADGE.new
@@ -622,9 +656,10 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                       className="flex items-start gap-2 px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 rounded"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] leading-tight text-slate-600 dark:text-slate-300 break-all">
-                          {candidate.meta.title ?? candidate.meta.rawText}
-                        </p>
+                        <CandidateLabel
+                          parts={sentLabels[index]}
+                          bodyClass="text-slate-600 dark:text-slate-300"
+                        />
                         <p className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
                           {volumeLabel(candidate) && <span>{volumeLabel(candidate)}</span>}
                           {sentAt && <span>{sentAt}</span>}
