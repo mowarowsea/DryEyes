@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { FeedCandidate } from '../types/index.js';
-import { getCandidate, getFeedConfig, markSent } from './feedStore.js';
+import { getCandidate, getFeedConfig, markSent, withFeedMeta } from './feedStore.js';
 import { isOwnedBy } from './ownership.js';
 import { notesBySourceKey, sendItems } from './powerdowner.js';
 
@@ -9,6 +9,9 @@ import { notesBySourceKey, sendItems } from './powerdowner.js';
 // 監視ごとに投入先ユーザーと保存先が違うので、監視単位にまとめてから送る。
 // 1 回の上限 (PowerDowner 側も 20 件で切る) を超える分は分割して順に送る —
 // 向こうに切り捨てさせると、切られた候補が pending のまま取り残される。
+//
+// 投入済みを送り直す (`resend`) 経路も同じところを通す。宛先も上限も重複判定も
+// 初回と何ひとつ変わらないので、別の道を作ると片方だけ直すことになる。
 
 export interface SendSummary {
   /** PowerDowner が受け取った件数 (スキップ・合流も含む) */
@@ -19,11 +22,21 @@ export interface SendSummary {
   ignored: { id: string; reason: string }[];
 }
 
-export interface FeedSendDeps {
-  send: typeof sendItems;
+export interface FeedSendOptions {
+  /** PowerDowner への POST。テストで差し替える口 */
+  send?: typeof sendItems;
+  /**
+   * 投入済みのものも送り直す。
+   *
+   * PowerDowner 側でジョブを消してしまったときの入れ直し口。向こうの台帳は
+   * ジョブを消すと未完の行 (pending) も一緒に消えるので、送り直せば新しいジョブになる。
+   * 落とし終わっている巻は台帳に残っているため「取得済み」で弾かれる — つまり
+   * 消してしまったものだけが入り直る。
+   *
+   * 自動投入からは立てない。更新のたびに投入済みを全部送り直してしまう。
+   */
+  resend?: boolean;
 }
-
-const defaultDeps: FeedSendDeps = { send: sendItems };
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -34,8 +47,9 @@ function chunk<T>(items: T[], size: number): T[][] {
 export async function sendCandidates(
   ids: string[],
   userId: string,
-  deps: FeedSendDeps = defaultDeps
+  opts: FeedSendOptions = {}
 ): Promise<SendSummary> {
+  const send = opts.send ?? sendItems;
   const summary: SendSummary = { sent: 0, results: [], errors: [], ignored: [] };
 
   // 監視ごとにまとめる。投入先ユーザーと保存先が監視の設定に付いているため
@@ -50,7 +64,7 @@ export async function sendCandidates(
       summary.ignored.push({ id, reason: '他のユーザーの監視です' });
       continue;
     }
-    if (candidate.status === 'sent') {
+    if (candidate.status === 'sent' && !opts.resend) {
       summary.ignored.push({ id, reason: '既に投入済みです' });
       continue;
     }
@@ -70,10 +84,12 @@ export async function sendCandidates(
 
     for (const batch of chunk(candidates, config.powerdowner.batchSize)) {
       try {
-        const response = await deps.send({
+        const response = await send({
           userId: feedConfig.userId,
           destDir: feedConfig.destDir,
-          candidates: batch,
+          // 作者と作品名は今の設定を重ねて送る。所持の判定と同じメタでないと、
+          // 向こうの重複判定が候補ごとに違う作品を見ることになる
+          candidates: batch.map(withFeedMeta),
         });
         const notes = notesBySourceKey(response);
 

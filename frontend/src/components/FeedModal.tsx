@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, Link2, Loader2, RefreshCw, Send, Undo2, X } from 'lucide-react';
+import { ChevronDown, Link2, Loader2, RefreshCw, RotateCcw, Send, Undo2, X } from 'lucide-react';
 import {
   FeedCandidateWithState,
   FeedConfig,
@@ -21,6 +21,11 @@ import { inputClass, selectClass, submitButtonClass } from '../ui';
 // 区分けは対象／対象外の 2 つだけ。「今は落とさないが後で落とすかもしれない」は
 // 実際にはほぼ起きないので、中間状態を置いて迷いどころを増やさない。
 // 振り分けを間違えても、対象外からいつでも戻せる。
+//
+// 投入済みも畳んで残す。PowerDowner 側でジョブを消してしまうと、こちらは「送った」まま
+// 向こうに何も無い状態になり、次のスキャンでも同じ行は二度と候補にならない
+// (sourceKey で弾かれる)。ここから送り直せるようにしておかないと、その巻だけ
+// 監視を作り直すまで手が届かなくなる。
 
 interface FeedModalProps {
   watch: WatchModel | null;
@@ -42,6 +47,39 @@ const STATE_BADGE: Record<'skip' | 'merge', { label: string; className: string }
   merge: { label: '取得中', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' },
 };
 
+/**
+ * 同じ状態を投入済みの側から見たときの言い方。
+ *
+ * 未投入なら skip は「持っているから送らなくていい」だが、投入済みの行では
+ * 「送ったものが向こうに収まっている」を意味する。同じ札で両方を表すと、
+ * 入れ直しの要る行が見分けられない。
+ */
+const SENT_BADGE: Record<'new' | 'skip' | 'merge', { label: string; className: string }> = {
+  // 台帳から消えている = 向こうでジョブごと消された。この画面で拾いたいのはこれ
+  new: { label: 'ジョブなし', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300' },
+  skip: { label: '取得済み', className: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
+  merge: { label: '取得中', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' },
+};
+
+/**
+ * 投入済みなのに PowerDowner の台帳に無いもの。
+ *
+ * 向こうはジョブを消すと未完の台帳行も一緒に消すので、これが「間違って消した」の印になる。
+ * 巻数を読めない候補は重なり判定にそもそも参加できず常に new で返ってくるため、
+ * ここでは数えない — 消えていないものを「消えた」と言うと、押しても何も起きない
+ * ボタンだけが並ぶ。
+ */
+const isMissingJob = (candidate: FeedCandidateWithState): boolean =>
+  candidate.powerdowner?.state === 'new' && candidate.powerdowner.volumeFrom !== null;
+
+/** 投入した時刻。年は出さない — 並んでいるのは大抵ここ数日のもの */
+const formatSentAt = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  return at.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
 /** PowerDowner が元の文字列から読み取った巻数 */
 const volumeLabel = (candidate: FeedCandidateWithState): string | null => {
   const pd = candidate.powerdowner;
@@ -54,11 +92,15 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   const [users, setUsers] = useState<PowerdownerUser[]>([]);
   const [candidates, setCandidates] = useState<FeedCandidateWithState[]>([]);
   const [excluded, setExcluded] = useState<FeedCandidateWithState[]>([]);
-  const [busy, setBusy] = useState<'load' | 'save' | 'scan' | 'send' | 'exclude' | 'restore' | null>(null);
+  const [sent, setSent] = useState<FeedCandidateWithState[]>([]);
+  const [busy, setBusy] = useState<
+    'load' | 'save' | 'scan' | 'send' | 'exclude' | 'restore' | 'resend' | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [excludedOpen, setExcludedOpen] = useState(false);
+  const [sentOpen, setSentOpen] = useState(false);
   // 候補が 0 件だったときに、何が取れていたのかを見せるための控え
   const [samples, setSamples] = useState<FeedScanResult['samples']>(undefined);
 
@@ -71,14 +113,16 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setBusy('load');
     setError(null);
     try {
-      const [loadedConfig, pending, dismissed] = await Promise.all([
+      const [loadedConfig, pending, dismissed, alreadySent] = await Promise.all([
         api.getFeedConfig(watchId),
         api.listFeedCandidates('pending', watchId),
         api.listFeedCandidates('dismissed', watchId),
+        api.listFeedCandidates('sent', watchId),
       ]);
       setConfig(loadedConfig);
       setCandidates(pending);
       setExcluded(dismissed);
+      setSent(alreadySent);
       // 投入先が決まっていない間は設定を開いておく
       if (initial) setSettingsOpen(loadedConfig.userId === null);
     } catch (err: any) {
@@ -93,6 +137,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setNotice(null);
     setSamples(undefined);
     setExcludedOpen(false);
+    setSentOpen(false);
     load(watch.id, true);
     // PowerDowner が止まっていても画面は使えるようにする (手入力に落とす)
     api.listPowerdownerUsers().then(setUsers).catch(() => setUsers([]));
@@ -111,6 +156,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   const patch = (next: Partial<FeedConfig>) => setConfig({ ...config, ...next });
   const working = busy !== null;
   const currentUser = users.find((u) => u.id === config.userId) ?? null;
+  // 投入済みのうち、PowerDowner に見当たらないもの (向こうでジョブを消した分)
+  const missingJobs = sent.filter(isMissingJob);
 
   const handleSave = async () => {
     setBusy('save');
@@ -195,6 +242,31 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
       await load(watch.id);
     } catch (err: any) {
       setError(err.message || '戻せませんでした');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * 投入済みを送り直す。
+   *
+   * 向こうの台帳に残っている巻は「取得済み」で弾かれて返ってくるので、
+   * 消してしまったジョブだけが入り直る。押し間違えても二重に落ちることはない。
+   */
+  const handleResend = async (ids: string[]) => {
+    setBusy('resend');
+    setError(null);
+    setNotice(null);
+    try {
+      const summary = await api.sendFeedCandidates(ids, true);
+      const parts = [`${summary.sent} 件を投入し直しました`];
+      // 「送ったのに何も起きない」ように見えるのは大抵ここなので、理由をそのまま出す
+      if (summary.ignored.length > 0) parts.push(`${summary.ignored.length} 件は送りませんでした`);
+      if (summary.errors.length > 0) parts.push(summary.errors.map((e) => e.message).join(' / '));
+      setNotice(parts.join('。'));
+      await load(watch.id);
+    } catch (err: any) {
+      setError(err.message || '再投入に失敗しました');
     } finally {
       setBusy(null);
     }
@@ -478,6 +550,96 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                     </button>
                   </li>
                 ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {/* --- 投入済み (向こうでジョブを消したときの入れ直し口) --- */}
+        {sent.length > 0 && (
+          <section className="border-t border-slate-100 dark:border-slate-800 pt-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSentOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-left"
+              >
+                <ChevronDown
+                  className={`w-3 h-3 text-slate-400 transition-transform ${sentOpen ? '' : '-rotate-90'}`}
+                />
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  投入済み ({sent.length})
+                </span>
+              </button>
+
+              {/* 畳んでいても気づけるように、消えている件数は見出しの隣に出す */}
+              {missingJobs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleResend(missingJobs.map((c) => c.id))}
+                  disabled={working}
+                  title="PowerDowner の台帳に無いものだけを送り直します"
+                  className={`${subButton} ml-auto flex items-center gap-1 !text-amber-700 dark:!text-amber-300 !bg-amber-50 dark:!bg-amber-900/40 hover:!bg-amber-100 dark:hover:!bg-amber-900/60`}
+                >
+                  <RotateCcw className={`w-3 h-3 ${busy === 'resend' ? 'animate-spin' : ''}`} />
+                  ジョブが無い {missingJobs.length} 件を再投入
+                </button>
+              )}
+            </div>
+
+            {sentOpen && (
+              <ul className="mt-1.5 space-y-1 max-h-52 overflow-y-auto">
+                {sent.map((candidate) => {
+                  const badge = candidate.powerdowner
+                    ? isMissingJob(candidate)
+                      ? SENT_BADGE.new
+                      : candidate.powerdowner.state === 'new'
+                        ? null // 巻数を読めず判定に参加できていないだけ。無いとは言えない
+                        : SENT_BADGE[candidate.powerdowner.state]
+                    : null;
+                  const sentAt = formatSentAt(candidate.sentAt);
+                  return (
+                    <li
+                      key={candidate.id}
+                      className="flex items-start gap-2 px-2 py-1.5 bg-slate-50 dark:bg-slate-800/60 rounded"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] leading-tight text-slate-600 dark:text-slate-300 break-all">
+                          {candidate.meta.title ?? candidate.meta.rawText}
+                        </p>
+                        <p className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
+                          {volumeLabel(candidate) && <span>{volumeLabel(candidate)}</span>}
+                          {sentAt && <span>{sentAt}</span>}
+                          {/* 向こうの返答をそのまま残す。合流・スキップも「投入済み」なので、
+                              何が起きたのかはこの一言でしか分からない */}
+                          {candidate.resultNote && (
+                            <span className="truncate" title={candidate.resultNote}>
+                              {candidate.resultNote}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      {badge && (
+                        <span
+                          className={`flex-shrink-0 mt-0.5 px-1.5 text-[10px] font-medium rounded ${badge.className}`}
+                          title={candidate.powerdowner?.reason ?? undefined}
+                        >
+                          {badge.label}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleResend([candidate.id])}
+                        disabled={working}
+                        title="もう一度 PowerDowner へ送る (持っているものは向こうで弾かれます)"
+                        className={`${subButton} flex items-center gap-1 flex-shrink-0`}
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        再投入
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

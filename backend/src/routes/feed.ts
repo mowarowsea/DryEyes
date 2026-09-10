@@ -11,6 +11,7 @@ import {
   listCandidates,
   restoreCandidate,
   setFeedConfig,
+  withFeedMeta,
 } from '../services/feedStore.js';
 import { FeedCandidate, FeedCandidateWithState } from '../types/index.js';
 import { checkItems, deleteLibraryItem, listUsers, registerHave } from '../services/powerdowner.js';
@@ -70,7 +71,9 @@ feedRouter.get('/candidates', async (req, res) => {
   >();
   for (const [userId, group] of groupByPowerdownerUser(candidates)) {
     try {
-      for (const result of await checkItems(userId, group)) {
+      // 投入するときと同じメタで聞く。ここだけ積んだ時点の写しを使うと、
+      // 台帳に載っているものを「持っていない」と言ってしまう
+      for (const result of await checkItems(userId, group.map(withFeedMeta))) {
         if (result.sourceKey) {
           checks.set(result.sourceKey, {
             state: result.state,
@@ -95,6 +98,9 @@ feedRouter.get('/candidates', async (req, res) => {
 /**
  * 選んだ候補を PowerDowner へ送る。
  * 監視ごとの設定 (投入先ユーザー・保存先) でまとめ、上限を超える分は分割して順に送る。
+ *
+ * `resend` を立てると投入済みのものも送り直す。PowerDowner 側でジョブを消して
+ * しまったときの入れ直し口で、人が画面から押したときだけ立つ。
  */
 feedRouter.post('/candidates/send', async (req, res) => {
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
@@ -103,7 +109,7 @@ feedRouter.post('/candidates/send', async (req, res) => {
     return;
   }
   try {
-    res.json(await sendCandidates(ids, req.user!.id));
+    res.json(await sendCandidates(ids, req.user!.id, { resend: req.body?.resend === true }));
   } catch (err: any) {
     res.status(500).json({ error: '投入に失敗しました', message: err.message });
   }
@@ -135,7 +141,7 @@ feedRouter.post('/candidates/exclude', async (req, res) => {
     for (const [userId, group] of groupByPowerdownerUser(targets)) {
       const result = await registerHave(
         userId,
-        group.map((c) => ({
+        group.map(withFeedMeta).map((c) => ({
           sourceKey: c.sourceKey,
           title: c.meta.title ?? c.meta.rawText,
           author: c.meta.author,

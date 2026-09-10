@@ -64,6 +64,29 @@ describe('sendCandidates', () => {
     expect(getCandidate(candidate.id)?.resultNote).toMatch(/投入しました/);
   });
 
+  // 候補を積んだあとに作品名を設定した監視。積んだ時点の写しで送ると、向こうが
+  // 作品名から導く seriesKey が候補ごとに揺れ、台帳に載っている巻を落とし直してしまう
+  it('should send the meta the watch is configured with now, not the one stored with the candidate', async () => {
+    assignOwner('sw12', OWNER);
+    setFeedConfig('sw12', { userId: 1 });
+    const [candidate] = addCandidates('sw12', [
+      { text: 'Isekai_v01-02.rar katfile', urls: ['https://a.example/x'], meta: { title: null, author: null, volume: null, rawText: 'Isekai_v01-02.rar katfile' } },
+    ]);
+    setFeedConfig('sw12', { author: '著者', title: '異世界町工場無双' });
+
+    const send = vi.fn(async (input: any) => okResponse(input.candidates));
+    await sendCandidates([candidate.id], OWNER, { send });
+
+    expect(send.mock.calls[0][0].candidates[0].meta).toMatchObject({
+      title: '異世界町工場無双',
+      author: '著者',
+      // 生テキストはそのまま。巻数は向こうがここから読む
+      rawText: 'Isekai_v01-02.rar katfile',
+    });
+    // 身元は候補のもの。応答との突き合わせに使っている
+    expect(send.mock.calls[0][0].candidates[0].sourceKey).toBe(candidate.sourceKey);
+  });
+
   it('should record a skip from PowerDowner as the result, not as a failure', async () => {
     assignOwner('sw2', OWNER);
     setFeedConfig('sw2', { userId: 1 });
@@ -132,6 +155,45 @@ describe('sendCandidates', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(again.ignored[0].reason).toMatch(/既に投入済み/);
+  });
+
+  // PowerDowner 側でジョブを消してしまったときの入れ直し。
+  // 向こうの台帳はジョブを消すと未完の行も消えるので、送り直せば新しいジョブになる
+  it('should send an already-sent candidate again when resend is asked for', async () => {
+    assignOwner('sw10', OWNER);
+    setFeedConfig('sw10', { userId: 1 });
+    const [candidate] = addCandidates('sw10', [itemOf('[著者] 作品名 第10巻')]);
+
+    const send = vi.fn(async (input: any) => okResponse(input.candidates));
+    await sendCandidates([candidate.id], OWNER, { send });
+    const again = await sendCandidates([candidate.id], OWNER, { send, resend: true });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(again.sent).toBe(1);
+    expect(again.ignored).toHaveLength(0);
+    expect(getCandidate(candidate.id)?.status).toBe('sent');
+  });
+
+  // 消えていないものを送り直しても二重には落ちない。向こうが台帳で弾き、
+  // その理由がそのまま候補に残る
+  it('should record PowerDowner refusing a resend as the new result', async () => {
+    assignOwner('sw11', OWNER);
+    setFeedConfig('sw11', { userId: 1 });
+    const [candidate] = addCandidates('sw11', [itemOf('[著者] 作品名 第11巻')]);
+
+    const send = vi
+      .fn()
+      .mockImplementationOnce(async (input: any) => okResponse(input.candidates))
+      .mockImplementationOnce(async (input: any) => ({
+        created: [], merged: [], invalid: [], truncated: 0,
+        skipped: [{ sourceKey: input.candidates[0].sourceKey, title: '作品名', reason: '取得済み (第11巻)' }],
+      }));
+
+    await sendCandidates([candidate.id], OWNER, { send });
+    await sendCandidates([candidate.id], OWNER, { send, resend: true });
+
+    expect(getCandidate(candidate.id)?.resultNote).toMatch(/取得済み/);
+    expect(getCandidate(candidate.id)?.status).toBe('sent');
   });
 
   it('should leave a candidate pending when PowerDowner did not report it', async () => {

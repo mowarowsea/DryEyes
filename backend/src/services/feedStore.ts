@@ -38,6 +38,29 @@ export function setFeedConfig(watchId: string, patch: Partial<FeedConfig>): Feed
 }
 
 /**
+ * 候補に「いまの投入設定」を重ねてから PowerDowner へ渡す。
+ *
+ * 作者と作品名は行ではなく監視の属性なので (ARCHITECTURE.md 5 章)、候補を積んだ時点の
+ * 写しではなく今の設定を使う。積んだあとに設定を入れた監視では、向こうが作品名から
+ * 導く `seriesKey` が候補ごとに揺れ、台帳に載っているのに「持っていない」と返ってくる。
+ * 所持の判定と投入で別のメタを渡すと、そこがまた食い違う。
+ *
+ * `sourceKey` は候補の身元なので触らない。向こうの応答との突き合わせに使っている。
+ */
+export function withFeedMeta(candidate: FeedCandidate): FeedCandidate {
+  const config = getFeedConfig(candidate.watchId);
+  if (config.author === null && config.title === null) return candidate;
+  return {
+    ...candidate,
+    meta: {
+      ...candidate.meta,
+      author: config.author ?? candidate.meta.author,
+      title: config.title ?? candidate.meta.title,
+    },
+  };
+}
+
+/**
  * どのスナップショットまで候補化したか。
  * 既読 (viewState) と混ぜないこと — 同じフラグにすると「候補に積んだら既読になって
  * 人が気づかない」「人が先に見たら候補に積まれない」のどちらかで必ず事故る。

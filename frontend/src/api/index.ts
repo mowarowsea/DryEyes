@@ -319,11 +319,13 @@ export const api = {
   },
 
   // 選んだ候補を PowerDowner へ送る。
-  // 取得済みでスキップされた・既存ジョブに合流した、も成功として返る
-  async sendFeedCandidates(ids: string[]): Promise<FeedSendSummary> {
+  // 取得済みでスキップされた・既存ジョブに合流した、も成功として返る。
+  //
+  // resend を立てると投入済みのものも送り直す (向こうでジョブを消してしまったときの入れ直し)
+  async sendFeedCandidates(ids: string[], resend = false): Promise<FeedSendSummary> {
     const res = await request('/feed/candidates/send', {
       method: 'POST',
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids, resend }),
     });
     if (!res.ok) throw new Error(await errorMessage(res, '投入に失敗しました'));
     return res.json();

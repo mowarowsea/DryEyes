@@ -251,7 +251,7 @@ XPath 配下の `<a>` から取る**。`hasAnySelectorMatch()` と同じ仕組�
 | `services/feedSend.ts` | 監視ごとにまとめ、上限で分割して送り、結果を候補に書き戻す | 済 |
 | `routes/feed.ts` | 候補の一覧・見送り・投入、設定の取得と更新、スキャンの実行 | 済 |
 | `services/feedAutoScan.ts` | 監視のチェックに追いついて取り込み、`autoSend` が立っていれば自動投入 | 済 |
-| `components/FeedModal.tsx` | 設定・取り込み・候補の確認を 1 画面に並べたモーダル | 済 |
+| `components/FeedModal.tsx` | 設定・取り込み・候補の確認と、投入済みの送り直しを 1 画面に並べたモーダル | 済 |
 | `watchGroup.ts` | 一覧の仕分け (Web 監視 / ダウンロード監視、作品ごとのまとめ) | 済 |
 | `components/ListModeTabs.tsx` | 2 つの一覧の切り替え | 済 |
 | `components/WorkGroupCard.tsx` | 同じ作品の監視をまとめる枠 | 済 |
@@ -260,7 +260,7 @@ API:
 
 ```
 GET    /api/feed/candidates?status=pending      候補一覧 (自分が持つ監視のものだけ)
-POST   /api/feed/candidates/send                選んだ候補を PowerDowner へ送る
+POST   /api/feed/candidates/send                選んだ候補を PowerDowner へ送る ({ resend: true } で投入済みも送り直す)
 POST   /api/feed/candidates/exclude             対象外にする (所持済みなら向こうの台帳へも登録)
 POST   /api/feed/candidates/:id/restore         対象外を取り消して戻す
 GET    /api/feed/powerdowner/users              投入先に選べる PowerDowner のユーザー
@@ -289,6 +289,25 @@ POST   /api/feed/watches/:watchId/scan          増分から候補を作る ({ a
 人が決めるのは「確認してから送るか、そのまま送るか (`autoSend`)」だけ。
 
 投入に失敗した候補は `pending` のまま残る。次の巡回が拾い直すので、リトライ機構は要らない。
+
+**投入済みは畳んで残し、そこから送り直せるようにする。** PowerDowner 側でジョブを消すと、
+DryEyes は「送った」まま向こうに何も無い状態になる。同じ行は `sourceKey` で弾かれるので
+次のスキャンでも候補に戻らず、その巻だけ監視を作り直すまで手が届かなくなる。
+`resend` を立てた投入は初回とまったく同じ経路 (`sendCandidates`) を通る — 宛先も上限も
+重複判定も変わらないので、別の道を作ると片方だけ直すことになる。
+
+**PowerDowner へ渡すメタは、候補を積んだ時点の写しではなく今の投入設定を重ねる**
+(`withFeedMeta`)。作者と作品名は行ではなく監視の属性なので、設定を後から入れた監視では
+古い候補だけ作品名が空のままになり、向こうが作品名から導く `seriesKey` が候補ごとに
+揺れる。所持の判定 (`/api/items/check`)・投入 (`/api/jobs`)・所持登録 (`/api/items`) の
+3 か所すべてで重ねること — 片方だけだと、台帳に載っているのに「持っていない」と返り、
+送り直すと同じ巻をもう一度落とす。
+
+送り直しても二重には落ちない。**PowerDowner はジョブを消すとき未完の台帳行 (`pending`) も
+一緒に消す**ので、消したものだけが `new` として入り直り、落とし終わった巻は台帳に残っていて
+「取得済み」で弾かれる。画面はこの差をそのまま使い、`/api/items/check` が `new` を返す
+投入済みの行に「ジョブなし」を出す。ただし**巻数を読めない候補は重なり判定に参加できず
+常に `new` で返る**ため、それは消えた扱いにしない。
 
 **PowerDowner の取得済み台帳はユーザー単位。** 所持の判定 (`/api/items/check`) も
 所持の登録 (`/api/items`) も `userId` を要求するので、DryEyes 側は監視ごとの投入先で
