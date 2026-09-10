@@ -101,7 +101,10 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [excludedOpen, setExcludedOpen] = useState(false);
   const [sentOpen, setSentOpen] = useState(false);
-  // 候補が 0 件だったときに、何が取れていたのかを見せるための控え
+  // 候補が 0 件だったスキャンの控え。何が取れていたのかを見せて原因を切り分ける。
+  //
+  // 候補が出たスキャンでは持たない。持ち越すと、投入して対象が空になっただけの画面に
+  // 「取れませんでした」の説明が残り、うまくいった操作を失敗に見せてしまう。
   const [samples, setSamples] = useState<FeedScanResult['samples']>(undefined);
 
   /**
@@ -187,7 +190,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
             ? `ページ全体から ${result.added} 件を候補にしました (取れた要素 ${result.extracted ?? 0})`
             : SCAN_MESSAGE[result.status]
       );
-      setSamples(result.samples);
+      // 候補が出たなら説明は要らない (下の空表示に持ち越さない)
+      setSamples(result.added === 0 ? result.samples : undefined);
       await load(watch.id);
     } catch (err: any) {
       setError(err.message || '候補の作成に失敗しました');
@@ -200,6 +204,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setBusy('send');
     setError(null);
     setNotice(null);
+    setSamples(undefined);
     try {
       // 対象に残っているものを全部送る。落としたくないものは × で対象外にしておく
       const summary = await api.sendFeedCandidates(candidates.map((c) => c.id));
@@ -219,6 +224,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setBusy('exclude');
     setError(null);
     setNotice(null);
+    setSamples(undefined);
     try {
       const result = await api.excludeFeedCandidates(ids);
       // 巻数を読めないものは台帳の重なり判定に参加できないので登録されない。
@@ -237,6 +243,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   const handleRestore = async (id: string) => {
     setBusy('restore');
     setError(null);
+    setSamples(undefined);
     try {
       await api.restoreFeedCandidate(id);
       await load(watch.id);
@@ -257,6 +264,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setBusy('resend');
     setError(null);
     setNotice(null);
+    setSamples(undefined);
     try {
       const summary = await api.sendFeedCandidates(ids, true);
       const parts = [`${summary.sent} 件を投入し直しました`];
@@ -421,8 +429,16 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
               // セレクタが外れているのか、リンクが取れていないのかをここで切り分ける
               <div className="space-y-1">
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  取れた要素にリンクがありませんでした。選んだ範囲に <code>&lt;a href&gt;</code> が
-                  入っていないか、リンクが別の場所にあります。
+                  {samples.some((sample) => sample.urls > 0) ? (
+                    // リンクは取れている = 一度通した行。同じ行は二度と候補にならないので、
+                    // 「取れなかった」ではなく「もう振り分け済み」と言う
+                    <>取れた要素はどれも取り込み済みでした。対象外か投入済みに入っています。</>
+                  ) : (
+                    <>
+                      取れた要素にリンクがありませんでした。選んだ範囲に <code>&lt;a href&gt;</code> が
+                      入っていないか、リンクが別の場所にあります。
+                    </>
+                  )}
                 </p>
                 {samples.map((sample, i) => (
                   <div
@@ -446,7 +462,9 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
               </div>
             ) : (
               <p className="py-5 text-center text-[11px] text-slate-400">
-                「全件を洗い出す」を押すと、いまページにあるものが並びます。
+                {sent.length > 0 || excluded.length > 0
+                  ? '投入する対象はありません。次に増えた分がここに並びます。'
+                  : '「全件を洗い出す」を押すと、いまページにあるものが並びます。'}
               </p>
             )
           ) : (
