@@ -78,6 +78,15 @@ export async function listUsers(): Promise<PowerdownerUser[]> {
     if (status === 401) {
       throw new Error('PowerDowner に拒否されました。POWERDOWNER_TOKEN が config.json の apiToken と一致しているか確認してください');
     }
+    // 404 は「繋がったが PowerDowner ではない」。同じポートを別のサーバーが先に
+    // 握っていると起きる (127.0.0.1 への束縛は 0.0.0.0 より優先される)。
+    // ここを「取れません」で済ませると、投入先が ID の手入力に落ちた理由が分からない
+    if (status === 404) {
+      throw new Error(
+        `${config.powerdowner.baseUrl} は応答しますが PowerDowner ではありません (/api/users が 404)。` +
+          'そのポートを別のサーバーが握っていないか確認してください'
+      );
+    }
     throw new Error(`PowerDowner のユーザー一覧を取れません (${config.powerdowner.baseUrl}): ${err?.message || err}`);
   }
 }

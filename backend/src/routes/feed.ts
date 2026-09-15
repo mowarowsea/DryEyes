@@ -15,6 +15,7 @@ import {
 } from '../services/feedStore.js';
 import { FeedCandidate, FeedCandidateWithState } from '../types/index.js';
 import { checkItems, deleteLibraryItem, listUsers, registerHave } from '../services/powerdowner.js';
+import { searchSeries } from '../services/pinax.js';
 
 // PowerDowner への投入候補まわり。
 //
@@ -190,6 +191,22 @@ feedRouter.get('/powerdowner/users', async (_req, res) => {
     res.json(await listUsers());
   } catch (err: any) {
     res.status(502).json({ error: 'PowerDowner のユーザー一覧を取れません', message: err.message });
+  }
+});
+
+/**
+ * 投入設定の作者・作品名を、蔵書 (Pinax) の綴りから選べるようにする。
+ *
+ * 手で書くと棚と 1 文字違うだけで別フォルダに割れるので、既にある綴りを借りる
+ * (services/pinax.ts)。Pinax が止まっていても投入設定自体は手入力で使えるように、
+ * 失敗はここで止めて画面側に握り潰させる。
+ */
+feedRouter.get('/pinax/series', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  try {
+    res.json(await searchSeries(q));
+  } catch (err: any) {
+    res.status(502).json({ error: '蔵書を引けません', message: err.message });
   }
 });
 

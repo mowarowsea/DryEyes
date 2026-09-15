@@ -66,6 +66,11 @@ export const config = {
     // 1 回の投入で送る上限。PowerDowner 側も 20 件で切るので、それに合わせて分割する
     batchSize: 20,
   },
+  pinax: {
+    // 蔵書の台帳 (C:\Users\seamo\pinax)。作者・作品名の表記をここから借りる。
+    // 棚に並んでいる綴りをそのまま使えば、落としたファイルが既存のフォルダへ素直に入る
+    baseUrl: (process.env.PINAX_URL || 'http://127.0.0.1:3838').replace(/\/$/, ''),
+  },
   ntfy: {
     // ホスト／ブラウザから見た ntfy の URL（購読リンクの表示用）
     baseUrl: process.env.NTFY_URL || 'http://localhost:8085',

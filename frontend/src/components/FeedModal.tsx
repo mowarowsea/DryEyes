@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Link2, Loader2, RefreshCw, RotateCcw, Send, Undo2, X } from 'lucide-react';
+import { ChevronDown, Library, Link2, Loader2, RefreshCw, RotateCcw, Send, Undo2, X } from 'lucide-react';
 import {
   FeedCandidateWithState,
   FeedConfig,
   FeedScanResult,
+  PinaxSeries,
   PowerdownerUser,
   WatchModel,
 } from '../types';
@@ -11,6 +12,7 @@ import { api } from '../api';
 import { Modal } from './Modal';
 import { inputClass, selectClass, submitButtonClass } from '../ui';
 import { LabelParts, splitSharedAffixes } from '../candidateLabel';
+import { guessSeriesQuery } from '../seriesQuery';
 
 // 監視の増分から作った投入候補を確認して、PowerDowner へ送る画面。
 //
@@ -116,6 +118,13 @@ const CandidateLabel: React.FC<{ parts: LabelParts; bodyClass: string }> = ({ pa
 export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) => {
   const [config, setConfig] = useState<FeedConfig | null>(null);
   const [users, setUsers] = useState<PowerdownerUser[]>([]);
+  // 一覧を取れなかった理由。握り潰すと投入先が ID の手入力に落ちた訳が画面から消える
+  const [usersError, setUsersError] = useState<string | null>(null);
+  // 蔵書 (Pinax) から作者・作品名を借りるための検索
+  const [shelfQuery, setShelfQuery] = useState('');
+  const [shelfHits, setShelfHits] = useState<PinaxSeries[]>([]);
+  const [shelfError, setShelfError] = useState<string | null>(null);
+  const [shelfBusy, setShelfBusy] = useState(false);
   const [candidates, setCandidates] = useState<FeedCandidateWithState[]>([]);
   const [excluded, setExcluded] = useState<FeedCandidateWithState[]>([]);
   const [sent, setSent] = useState<FeedCandidateWithState[]>([]);
@@ -138,6 +147,17 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
    * ここで設定の開閉を決めているので、毎回の読み直しで上書きすると
    * 下のボタンを押しただけで設定が開いてしまう。
    */
+  /** 投入先の選択肢。PowerDowner が止まっていると取れないので、失敗も画面に残す */
+  const loadUsers = useCallback(async () => {
+    try {
+      setUsers(await api.listPowerdownerUsers());
+      setUsersError(null);
+    } catch (err: any) {
+      setUsers([]);
+      setUsersError(err.message || 'PowerDowner のユーザー一覧を取れません');
+    }
+  }, []);
+
   const load = useCallback(async (watchId: string, initial = false) => {
     setBusy('load');
     setError(null);
@@ -169,8 +189,62 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setSentOpen(false);
     load(watch.id, true);
     // PowerDowner が止まっていても画面は使えるようにする (手入力に落とす)
-    api.listPowerdownerUsers().then(setUsers).catch(() => setUsers([]));
-  }, [isOpen, watch, load]);
+    loadUsers();
+    // 監視のタイトルから作品名を起こして、蔵書の検索欄に入れておく。
+    // 外すこともあるので、あくまで初期値 (seriesQuery.ts)
+    setShelfQuery(guessSeriesQuery(watch.title));
+    setShelfHits([]);
+    setShelfError(null);
+  }, [isOpen, watch, load, loadUsers]);
+
+  /**
+   * 蔵書 (Pinax) を引く。打つたびに投げないよう少し待つ。
+   *
+   * まだ何も決まっていない監視で候補が 1 件に絞れたときは、そのまま欄に入れる。
+   * 迷う余地が無い上に、ここは保存するまで何も起きない下書きなので取り消しも要らない。
+   * 人が書いたものは上書きしない。
+   */
+  useEffect(() => {
+    if (!isOpen || !settingsOpen) return;
+    const q = shelfQuery.trim();
+    if (!q) {
+      setShelfHits([]);
+      setShelfError(null);
+      return;
+    }
+
+    let alive = true;
+    const timer = setTimeout(() => {
+      setShelfBusy(true);
+      api
+        .searchPinaxSeries(q)
+        .then((hits) => {
+          if (!alive) return;
+          setShelfHits(hits);
+          setShelfError(null);
+          if (hits.length === 1) {
+            setConfig((prev) =>
+              prev && !prev.author && !prev.title
+                ? { ...prev, author: hits[0].author, title: hits[0].title }
+                : prev
+            );
+          }
+        })
+        .catch((err: any) => {
+          if (!alive) return;
+          setShelfHits([]);
+          setShelfError(err.message || '蔵書を引けません');
+        })
+        .finally(() => {
+          if (alive) setShelfBusy(false);
+        });
+    }, 250);
+
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [isOpen, settingsOpen, shelfQuery]);
 
   // 「どこが違うか」は並んでいるものの間で決まるので、区分ごとに切り分ける。
   // 下の読み込み中の分岐より前に置くこと (フックの数がレンダーで変わると React が落ちる)
@@ -356,15 +430,97 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                     ))}
                   </select>
                 ) : (
-                  // PowerDowner が止まっていると一覧を取れない。手入力に落とす
-                  <input
-                    type="number"
-                    value={config.userId ?? ''}
-                    onChange={(e) => patch({ userId: e.target.value === '' ? null : Number(e.target.value) })}
-                    placeholder="ユーザー ID (一覧を取得できませんでした)"
-                    className={inputClass}
-                  />
+                  // PowerDowner が止まっていると一覧を取れない。手入力に落とす。
+                  // ここで ID を出したままにすると「誰に送るのか」が読めなくなるので、
+                  // 名前が出ない理由と取り直す手段を必ず添える
+                  <>
+                    <input
+                      type="number"
+                      value={config.userId ?? ''}
+                      onChange={(e) => patch({ userId: e.target.value === '' ? null : Number(e.target.value) })}
+                      placeholder="ユーザー ID"
+                      className={inputClass}
+                    />
+                    <p className="mt-1 flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 leading-tight">
+                      <span className="flex-1 min-w-0">
+                        名前で選べません — {usersError ?? 'PowerDowner のユーザー一覧を取得できませんでした'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={loadUsers}
+                        className="shrink-0 underline hover:no-underline"
+                      >
+                        取り直す
+                      </button>
+                    </p>
+                  </>
                 )}
+              </div>
+
+              {/* 蔵書 (Pinax) から作者と作品名を借りる。
+                  手で書くと棚と 1 文字違うだけで別フォルダに割れるので、
+                  既に棚にある綴りをそのまま選べるようにしておく */}
+              <div>
+                <label className={labelClass}>蔵書 (Pinax) から取り込む</label>
+                <div className="relative">
+                  <Library className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={shelfQuery}
+                    onChange={(e) => setShelfQuery(e.target.value)}
+                    placeholder="作品名か作者名で探す"
+                    className={`${inputClass} pl-8`}
+                  />
+                  {shelfBusy && (
+                    <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 animate-spin" />
+                  )}
+                </div>
+
+                {shelfError ? (
+                  // 蔵書が止まっていても投入設定は手入力で使える。邪魔しない濃さで出す
+                  <p className="mt-1 text-[11px] text-slate-400 leading-tight">{shelfError}</p>
+                ) : shelfHits.length > 0 ? (
+                  <ul className="mt-1 border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-100 dark:divide-slate-800 max-h-40 overflow-y-auto">
+                    {shelfHits.map((hit) => {
+                      const chosen =
+                        (config.title ?? '') === hit.title && (config.author ?? '') === (hit.author ?? '');
+                      return (
+                        <li key={hit.id}>
+                          <button
+                            type="button"
+                            onClick={() => patch({ author: hit.author, title: hit.title })}
+                            className={`w-full text-left px-2.5 py-1.5 transition ${
+                              chosen
+                                ? 'bg-indigo-50 dark:bg-indigo-900/30'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <span className="flex-1 min-w-0 truncate text-[11px] font-medium text-slate-800 dark:text-slate-100">
+                                {hit.title}
+                              </span>
+                              {chosen && (
+                                <span className="shrink-0 text-[10px] text-indigo-600 dark:text-indigo-400">
+                                  選択中
+                                </span>
+                              )}
+                              <span className="shrink-0 text-[10px] text-slate-400">{hit.files}冊</span>
+                            </span>
+                            <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">
+                              {hit.author || '作者なし'}
+                              {/* 「続きが出ている — 8〜15巻が未所持」。落とす価値がここで分かる */}
+                              {hit.shelf ? ` · ${hit.shelf}` : ''}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : shelfQuery.trim() && !shelfBusy ? (
+                  <p className="mt-1 text-[11px] text-slate-400 leading-tight">
+                    棚に見当たりません。下の欄に直接書けます。
+                  </p>
+                ) : null}
               </div>
 
               {/* 監視 1 件 = 1 作品。行に載っているのは巻数だけというサイトが多いので、

@@ -261,6 +261,20 @@ export interface PowerdownerUser {
   defaultDir: string | null;
 }
 
+/**
+ * 蔵書 (Pinax) にある作品。投入設定の作者・作品名を棚の綴りに合わせるために出す。
+ * 手で書くと 1 文字違うだけで別フォルダに割れるので、既にある綴りを選ばせる。
+ */
+export interface PinaxSeries {
+  id: number;
+  title: string;
+  author: string | null;
+  /** 手元にある冊数 */
+  files: number;
+  /** 「続きが出ている — 8〜15巻が未所持」など */
+  shelf: string | null;
+}
+
 /** 一覧に添えて返る投入設定の写し。まとめ方を決めるのに要るぶんだけ */
 export interface FeedSummary {
   /** 投入先の PowerDowner ユーザー。決まっていれば「ダウンロード監視」 */

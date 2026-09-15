@@ -19,6 +19,7 @@ import {
   FeedConfig,
   FeedScanResult,
   FeedSendSummary,
+  PinaxSeries,
   PowerdownerUser,
 } from '../types';
 import { parseCropHeader } from '../cardImage';
@@ -353,6 +354,14 @@ export const api = {
   async listPowerdownerUsers(): Promise<PowerdownerUser[]> {
     const res = await request('/feed/powerdowner/users');
     if (!res.ok) throw new Error(await errorMessage(res, 'PowerDowner のユーザー一覧を取れません'));
+    return res.json();
+  },
+
+  // 投入設定の作者・作品名の候補。蔵書 (Pinax) が止まっていても設定は手入力で使えるよう、
+  // ここも呼び出し側で握り潰す
+  async searchPinaxSeries(q: string): Promise<PinaxSeries[]> {
+    const res = await request(`/feed/pinax/series?q=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error(await errorMessage(res, '蔵書を引けません'));
     return res.json();
   },
 
