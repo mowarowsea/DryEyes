@@ -252,7 +252,10 @@ export const WatchCard: React.FC<WatchCardProps> = ({
         </div>
       )}
 
-      <div className="relative z-10 flex items-center gap-2">
+      {/* この行は position + z-index でスタッキングコンテキストを作るので、メニューの z-20 は
+          この中に閉じ込められる。同じ z-10 で後から描かれる下の帯（転送の確認や失敗の表示）に
+          負けてメニューの上に重なってしまうため、開いている間だけこの行ごと持ち上げる。 */}
+      <div className={`relative ${menuOpen ? 'z-20' : 'z-10'} flex items-center gap-2`}>
         {/* ファビコン（取得できないサイトは地球アイコンで代用） */}
         <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
           {faviconUrl && !faviconFailed ? (
