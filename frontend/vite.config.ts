@@ -38,6 +38,10 @@ function manifestPlugin(): Plugin {
 // スマホから日常的に開くのはプレビューの方なので、URL とポートを揃えておく必要がある。
 const serverOptions = {
   port: 3010,
+  // ポートが埋まっていたら、黙って隣のポートに逃げずに止まる。
+  // 逃げられると、古い常駐が 3010 を握ったまま新しい方が 3011 で立ち上がり、
+  // 「起動したのに直っていない」が見えないまま残る（2026-09-19）。
+  strictPort: true,
   host: true,
   // Tailscale 越しに開くと Host ヘッダが <machine>.<tailnet>.ts.net になる。
   // Vite は既定で未知のホストを拒否するため、tailnet のドメインを許可しておく。

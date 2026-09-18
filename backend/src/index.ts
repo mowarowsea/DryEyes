@@ -22,11 +22,29 @@ const CLOUDFLARE_RETRY_POLL_INTERVAL_MS = 5 * 60 * 1000;
 // 黙って居なくなると、画面は「プレビューが真っ白」「一覧が出ない」で止まり、原因が分からない。
 // 監督プロセスを置いていない構成なので、記録して動き続けるほうがまし（uncaughtException も同様）。
 process.on('unhandledRejection', (reason) => {
-  console.error('[DryEyes BFF] 処理されなかった Promise の失敗:', reason);
+  logError('[DryEyes BFF] 処理されなかった Promise の失敗:', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[DryEyes BFF] 捕捉されなかった例外:', err);
+  logError('[DryEyes BFF] 捕捉されなかった例外:', err);
 });
+
+// その記録先が死んでいても、そこから例外を返さない。
+// 常駐の親 (LocalLauncher) だけが再起動すると、こちらが渡されているパイプは
+// 読み手を失い、以降の console.* は EPIPE で失敗する。その失敗は stream の 'error' として
+// 上がり、聞き手が居なければ上の uncaughtException に落ちる。そこでまた記録しようとすれば
+// 同じパイプに書いてまた失敗する — この往復が止まらなくなり、BFF は CPU を食いつぶしたまま
+// 応答しなくなる（2026-09-18。画面は枠だけ出て中身が出ない状態になった）。
+// 読み手の居なくなった出力は、黙って捨てる。
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
+
+function logError(...args: unknown[]): void {
+  try {
+    console.error(...args);
+  } catch {
+    // 出力先が居なくなっただけ。記録を諦めても、動き続けるほうがまし
+  }
+}
 
 const app = express();
 
