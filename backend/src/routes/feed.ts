@@ -14,7 +14,7 @@ import {
   withFeedMeta,
 } from '../services/feedStore.js';
 import { FeedCandidate, FeedCandidateWithState } from '../types/index.js';
-import { checkItems, deleteLibraryItem, listUsers, registerHave } from '../services/powerdowner.js';
+import { checkItems, listUsers } from '../services/powerdowner.js';
 import { searchSeries } from '../services/pinax.js';
 
 // PowerDowner への投入候補まわり。
@@ -36,7 +36,7 @@ const STATUSES: FeedCandidate['status'][] = ['pending', 'sent', 'dismissed'];
 
 /**
  * 候補を投入先の PowerDowner ユーザーごとに束ねる。
- * 台帳がユーザー単位なので、所持の判定も登録もユーザーを跨げない。
+ * 所持の判定は「その人が今落としている最中か」まで見るのでユーザーを跨げない。
  * 投入先が未設定の監視の候補は、誰の手元の話か決まらないので落とす。
  */
 function groupByPowerdownerUser(candidates: FeedCandidate[]): Map<number, FeedCandidate[]> {
@@ -60,11 +60,12 @@ feedRouter.get('/candidates', async (req, res) => {
 
   const candidates = listCandidates({ status, watchId }).filter((c) => isOwnedBy(c.watchId, req.user!.id));
 
-  // 「もう持っているか」は PowerDowner の台帳しか知らないので聞きに行く。
-  // 落ちていても一覧そのものは出す (判定が付かないだけ) — ここで失敗させると
-  // PowerDowner を起動していない間は候補を眺めることもできなくなる
+  // 「もう持っているか」は投入と同じ道で聞く (PowerDowner が棚 (pinax) と
+  // 落としている最中のジョブを突き合わせて答える)。落ちていても一覧そのものは出す
+  // (判定が付かないだけ) — ここで失敗させると、PowerDowner を起動していない間は
+  // 候補を眺めることもできなくなる
   //
-  // 台帳は PowerDowner のユーザー単位なので、投入先ユーザーごとに分けて聞く。
+  // 判定はユーザー単位なので、投入先ユーザーごとに分けて聞く。
   // 投入先が未設定の監視は誰の手元の話か決まらないので、判定を付けずに出す
   const checks = new Map<
     string,
@@ -73,7 +74,7 @@ feedRouter.get('/candidates', async (req, res) => {
   for (const [userId, group] of groupByPowerdownerUser(candidates)) {
     try {
       // 投入するときと同じメタで聞く。ここだけ積んだ時点の写しを使うと、
-      // 台帳に載っているものを「持っていない」と言ってしまう
+      // 棚にあるものを「持っていない」と言ってしまう
       for (const result of await checkItems(userId, group.map(withFeedMeta))) {
         if (result.sourceKey) {
           checks.set(result.sourceKey, {
@@ -117,11 +118,16 @@ feedRouter.post('/candidates/send', async (req, res) => {
 });
 
 /**
- * 対象外にする。PowerDowner の台帳へ「所持済み」として登録したうえで候補を畳む。
+ * 対象外にする。この監視からはもう投入しない、という DryEyes 側だけの印。
  *
  * 「今は落とさないが、あとで落とすかもしれない」という中間状態は置いていない。
  * 対象か対象外かの 2 つで足りるので、迷いどころを増やさない。
- * 戻せるように、登録した台帳 ID を候補に控えておく。
+ *
+ * **向こうへは何も書かない。** 以前は PowerDowner の取得済み台帳へ「所持済み」として
+ * 登録していたが、その台帳は廃止された (PowerDowner の docs/ROADMAP.md 2.5)。
+ * 「もう持っているか」は棚 (pinax) を毎回読んで答えるものになったので、
+ * 持っていないものを持っていることにする口はもう無いし、あっても棚と食い違うだけ。
+ * 押した人の「これは要らない」は候補の状態として DryEyes に残す。
  */
 feedRouter.post('/candidates/exclude', async (req, res) => {
   const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
@@ -134,39 +140,11 @@ feedRouter.post('/candidates/exclude', async (req, res) => {
     .map((id) => getCandidate(id))
     .filter((c): c is FeedCandidate => !!c && isOwnedBy(c.watchId, req.user!.id));
 
-  try {
-    // 台帳はユーザー単位。監視ごとに投入先が違いうるので、まとめてから送る
-    const itemIdOf = new Map<string, number>();
-    let registered = 0;
-    let skipped = 0;
-    for (const [userId, group] of groupByPowerdownerUser(targets)) {
-      const result = await registerHave(
-        userId,
-        group.map(withFeedMeta).map((c) => ({
-          sourceKey: c.sourceKey,
-          title: c.meta.title ?? c.meta.rawText,
-          author: c.meta.author,
-          volumes: c.meta.volume,
-        }))
-      );
-      for (const item of result.created) {
-        if (item.sourceKey) itemIdOf.set(item.sourceKey, item.id);
-      }
-      registered += result.created.length;
-      skipped += result.skipped;
-    }
-    // 台帳に入ったかどうかに関わらず候補からは外す。
-    // 巻数を読めないもの・投入先が未設定のものを残しても、次に押して結果が変わるわけではない
-    for (const candidate of targets) {
-      dismissCandidate(candidate.id, itemIdOf.get(candidate.sourceKey) ?? null);
-    }
-    res.json({ registered, skipped, excluded: targets.length });
-  } catch (err: any) {
-    res.status(502).json({ error: '所持の登録に失敗しました', message: err.message });
-  }
+  for (const candidate of targets) dismissCandidate(candidate.id);
+  res.json({ excluded: targets.length });
 });
 
-/** 対象外を取り消す。台帳へ入れたぶんも一緒に消して、元の状態へ戻す */
+/** 対象外を取り消して、投入対象へ戻す */
 feedRouter.post('/candidates/:id/restore', async (req, res) => {
   const candidate = getCandidate(req.params.id);
   if (!candidate) {
@@ -175,14 +153,6 @@ feedRouter.post('/candidates/:id/restore', async (req, res) => {
   }
   if (!ensureOwned(candidate.watchId, req.user!.id, res)) return;
 
-  if (candidate.libraryItemId) {
-    try {
-      await deleteLibraryItem(candidate.libraryItemId);
-    } catch (err: any) {
-      res.status(502).json({ error: '所持登録を取り消せませんでした', message: err.message });
-      return;
-    }
-  }
   res.json(restoreCandidate(req.params.id));
 });
 

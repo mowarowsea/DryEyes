@@ -65,7 +65,7 @@ describe('sendCandidates', () => {
   });
 
   // 候補を積んだあとに作品名を設定した監視。積んだ時点の写しで送ると、向こうが
-  // 作品名から導く seriesKey が候補ごとに揺れ、台帳に載っている巻を落とし直してしまう
+  // 作品名から導く seriesKey が候補ごとに揺れ、棚にある巻を落とし直してしまう
   it('should send the meta the watch is configured with now, not the one stored with the candidate', async () => {
     assignOwner('sw12', OWNER);
     setFeedConfig('sw12', { userId: 1 });
@@ -158,7 +158,7 @@ describe('sendCandidates', () => {
   });
 
   // PowerDowner 側でジョブを消してしまったときの入れ直し。
-  // 向こうの台帳はジョブを消すと未完の行も消えるので、送り直せば新しいジョブになる
+  // 向こうの重複判定はジョブ自身を見るので、消したものは送り直せば新しいジョブになる
   it('should send an already-sent candidate again when resend is asked for', async () => {
     assignOwner('sw10', OWNER);
     setFeedConfig('sw10', { userId: 1 });
@@ -174,7 +174,7 @@ describe('sendCandidates', () => {
     expect(getCandidate(candidate.id)?.status).toBe('sent');
   });
 
-  // 消えていないものを送り直しても二重には落ちない。向こうが台帳で弾き、
+  // 消えていないものを送り直しても二重には落ちない。向こうが取得済みとして弾き、
   // その理由がそのまま候補に残る
   it('should record PowerDowner refusing a resend as the new result', async () => {
     assignOwner('sw11', OWNER);

@@ -77,30 +77,27 @@ describe('addCandidates', () => {
 });
 
 describe('exclude and restore', () => {
-  it('should remember which ledger row an excluded candidate created', () => {
-    // 戻すときに、向こうの台帳からその 1 件だけを消す必要がある
+  it('should move an excluded candidate out of the pending list', () => {
     const [added] = addCandidates('wx', [item('[著者] 作品名 第21巻')]);
-    dismissCandidate(added.id, 42);
+    dismissCandidate(added.id);
 
-    const [excluded] = listCandidates({ watchId: 'wx', status: 'dismissed' });
-    expect(excluded.libraryItemId).toBe(42);
+    expect(listCandidates({ watchId: 'wx', status: 'pending' })).toHaveLength(0);
+    expect(listCandidates({ watchId: 'wx', status: 'dismissed' })).toHaveLength(1);
   });
 
   it('should put a restored candidate back in the pending list', () => {
     const [added] = addCandidates('wy', [item('[著者] 作品名 第23巻')]);
-    dismissCandidate(added.id, 7);
+    dismissCandidate(added.id);
 
     const restored = restoreCandidate(added.id);
     expect(restored?.status).toBe('pending');
-    // 台帳の行はもう消してあるので、控えも落とす
-    expect(restored?.libraryItemId).toBeNull();
     expect(listCandidates({ watchId: 'wy', status: 'pending' })).toHaveLength(1);
     expect(listCandidates({ watchId: 'wy', status: 'dismissed' })).toHaveLength(0);
   });
 
   it('should not resurrect an excluded candidate on the next scan', () => {
     const [added] = addCandidates('wz', [item('[著者] 作品名 第25巻')]);
-    dismissCandidate(added.id, null);
+    dismissCandidate(added.id);
     expect(addCandidates('wz', [item('[著者] 作品名 第25巻')])).toHaveLength(0);
   });
 });

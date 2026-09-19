@@ -332,9 +332,9 @@ export const api = {
     return res.json();
   },
 
-  // 対象外にする。PowerDowner の台帳へ「所持済み」として登録したうえで候補を畳む。
-  // 同じ行が次のスキャンで復活することはない
-  async excludeFeedCandidates(ids: string[]): Promise<{ registered: number; skipped: number; excluded: number }> {
+  // 対象外にして候補を畳む。同じ行が次のスキャンで復活することはない。
+  // PowerDowner へは何も書かない (所持は向こうが棚を読んで答える)
+  async excludeFeedCandidates(ids: string[]): Promise<{ excluded: number }> {
     const res = await request('/feed/candidates/exclude', {
       method: 'POST',
       body: JSON.stringify({ ids }),
@@ -343,7 +343,7 @@ export const api = {
     return res.json();
   },
 
-  // 対象外を取り消して投入対象へ戻す。台帳へ入れたぶんも一緒に消える
+  // 対象外を取り消して投入対象へ戻す
   async restoreFeedCandidate(id: string): Promise<FeedCandidate> {
     const res = await request(`/feed/candidates/${id}/restore`, { method: 'POST' });
     if (!res.ok) throw new Error(await errorMessage(res, '戻せませんでした'));

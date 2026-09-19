@@ -105,10 +105,11 @@ export interface CheckResult {
 /**
  * 候補が既に手元にあるかを調べる。投入はしない。
  *
- * 結果を DryEyes 側に保存しないのは、向こうの台帳が動くため
- * (別経路で落ちる・所持登録が増える)。見せるたびに聞き直す。
+ * 結果を DryEyes 側に保存しないのは、答えの元 (棚と進行中のジョブ) が動くため。
+ * 見せるたびに聞き直す。
  *
- * 台帳は PowerDowner のユーザー単位なので、誰の手元の話かを必ず添える。
+ * 判定はユーザー単位 (「落としている最中か」でそのユーザーのジョブを引く) なので、
+ * 誰の手元の話かを必ず添える。
  */
 export async function checkItems(userId: number, candidates: FeedCandidate[]): Promise<CheckResult[]> {
   if (candidates.length === 0) return [];
@@ -124,29 +125,10 @@ export async function checkItems(userId: number, candidates: FeedCandidate[]): P
   return res.results ?? [];
 }
 
-/**
- * 「これは既に持っている」を PowerDowner の台帳へ登録する。
- * 戻せるように、どの行がどのレコードになったかを sourceKey で対応付けて返す。
- */
-export async function registerHave(
-  userId: number,
-  items: { sourceKey: string; title: string | null; author: string | null; volumes: string | null }[]
-): Promise<{ created: { id: number; sourceKey: string | null }[]; skipped: number }> {
-  return post('/api/items', { userId, items }, '所持の登録に失敗しました');
-}
-
-/** 所持登録の取り消し。対象外にしたものを投入対象へ戻すときに使う */
-export async function deleteLibraryItem(itemId: number): Promise<void> {
-  try {
-    await client.delete(`${config.powerdowner.baseUrl}/api/items/${itemId}`, {
-      headers: config.powerdowner.token ? { Authorization: `Bearer ${config.powerdowner.token}` } : {},
-    });
-  } catch (err: any) {
-    // 既に消えている (404) なら目的は達しているので通す
-    if (err?.response?.status === 404) return;
-    throw new Error(`PowerDowner の所持登録を取り消せません: ${err?.message || err}`);
-  }
-}
+// 「これは既に持っている」を向こうへ登録する口 (POST /api/items) は無い。
+// PowerDowner の取得済み台帳は廃止され、所持は棚 (pinax) を毎回読んで答えるものに
+// なった (PowerDowner の docs/ROADMAP.md 2.5)。こちらから所持を書き込むと棚と
+// 食い違うだけなので、対象外は DryEyes 側の印だけで済ませる。
 
 /**
  * 応答を sourceKey ごとの説明に畳む。

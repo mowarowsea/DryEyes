@@ -319,11 +319,6 @@ export interface FeedCandidate {
   foundAt: string;
   /** pending: 投入対象 / sent: 投入済み / dismissed: 対象外 */
   status: 'pending' | 'sent' | 'dismissed';
-  /**
-   * 対象外にしたときに PowerDowner の台帳へ入れたレコードの ID。
-   * 「やっぱり対象だった」と戻すときに、この 1 件だけを向こうから消す。
-   */
-  libraryItemId?: number | null;
   sentAt?: string | null;
   /** 投入したときの PowerDowner の返答 (スキップ・合流もここに残す) */
   resultNote?: string | null;
@@ -331,7 +326,7 @@ export interface FeedCandidate {
 
 /**
  * 候補に「PowerDowner から見た状態」を添えたもの。
- * 状態は向こうの台帳が持っていて動くので、DryEyes 側には保存せず、見せるたびに聞き直す。
+ * 棚もジョブも動くので DryEyes 側には保存せず、見せるたびに聞き直す。
  * 聞けなかった (PowerDowner が落ちている) ときは null になる。
  */
 export interface FeedCandidateWithState extends FeedCandidate {

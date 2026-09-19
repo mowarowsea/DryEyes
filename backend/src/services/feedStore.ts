@@ -42,7 +42,7 @@ export function setFeedConfig(watchId: string, patch: Partial<FeedConfig>): Feed
  *
  * 作者と作品名は行ではなく監視の属性なので (ARCHITECTURE.md 5 章)、候補を積んだ時点の
  * 写しではなく今の設定を使う。積んだあとに設定を入れた監視では、向こうが作品名から
- * 導く `seriesKey` が候補ごとに揺れ、台帳に載っているのに「持っていない」と返ってくる。
+ * 導く `seriesKey` が候補ごとに揺れ、棚にあるのに「持っていない」と返ってくる。
  * 所持の判定と投入で別のメタを渡すと、そこがまた食い違う。
  *
  * `sourceKey` は候補の身元なので触らない。向こうの応答との突き合わせに使っている。
@@ -149,12 +149,12 @@ export function markSent(id: string, note: string | null): FeedCandidate | null 
 
 /**
  * 対象外にする。sourceKey は残るので、同じ行が次のスキャンで復活することはない。
- * libraryItemId は PowerDowner の台帳に入れたレコード — 戻すときに消す先。
+ * 印は DryEyes 側だけのもので、PowerDowner へは何も書かない (routes/feed.ts)。
  */
-export function dismissCandidate(id: string, libraryItemId: number | null = null): FeedCandidate | null {
+export function dismissCandidate(id: string): FeedCandidate | null {
   const current = getCandidate(id);
   if (!current) return null;
-  const next: FeedCandidate = { ...current, status: 'dismissed', libraryItemId };
+  const next: FeedCandidate = { ...current, status: 'dismissed' };
   store.update((data) => {
     data.candidates[id] = next;
   });
@@ -165,7 +165,7 @@ export function dismissCandidate(id: string, libraryItemId: number | null = null
 export function restoreCandidate(id: string): FeedCandidate | null {
   const current = getCandidate(id);
   if (!current) return null;
-  const next: FeedCandidate = { ...current, status: 'pending', libraryItemId: null };
+  const next: FeedCandidate = { ...current, status: 'pending' };
   store.update((data) => {
     data.candidates[id] = next;
   });

@@ -44,7 +44,7 @@ const SCAN_MESSAGE: Record<FeedScanResult['status'], string> = {
   collected: '',
 };
 
-/** PowerDowner の台帳から見た状態。既に手元にあるものを投入対象から外すために使う */
+/** PowerDowner から見た状態。既に手元にあるものを投入対象から外すために使う */
 const STATE_BADGE: Record<'skip' | 'merge', { label: string; className: string }> = {
   skip: { label: '所持済み', className: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
   merge: { label: '取得中', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' },
@@ -58,16 +58,17 @@ const STATE_BADGE: Record<'skip' | 'merge', { label: string; className: string }
  * 入れ直しの要る行が見分けられない。
  */
 const SENT_BADGE: Record<'new' | 'skip' | 'merge', { label: string; className: string }> = {
-  // 台帳から消えている = 向こうでジョブごと消された。この画面で拾いたいのはこれ
+  // 判定から消えている = 向こうでジョブごと消された。この画面で拾いたいのはこれ
   new: { label: 'ジョブなし', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300' },
   skip: { label: '取得済み', className: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300' },
   merge: { label: '取得中', className: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' },
 };
 
 /**
- * 投入済みなのに PowerDowner の台帳に無いもの。
+ * 投入済みなのに PowerDowner にジョブが無いもの。
  *
- * 向こうはジョブを消すと未完の台帳行も一緒に消すので、これが「間違って消した」の印になる。
+ * 向こうの重複判定はジョブ自身を見るので、ジョブを消すと判定からも消える。
+ * これが「間違って消した」の印になる。
  * 巻数を読めない候補は重なり判定にそもそも参加できず常に new で返ってくるため、
  * ここでは数えない — 消えていないものを「消えた」と言うと、押しても何も起きない
  * ボタンだけが並ぶ。
@@ -334,11 +335,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setSamples(undefined);
     try {
       const result = await api.excludeFeedCandidates(ids);
-      // 巻数を読めないものは台帳の重なり判定に参加できないので登録されない。
-      // 黙って消えると「登録したのに次も出てくる」に見えるため件数を出す
-      const parts = [`${result.excluded} 件を対象外にしました`];
-      if (result.skipped > 0) parts.push(`${result.skipped} 件は巻数を読めず所持登録できませんでした`);
-      setNotice(parts.join('。'));
+      setNotice(`${result.excluded} 件を対象外にしました`);
       await load(watch.id);
     } catch (err: any) {
       setError(err.message || '対象外にできませんでした');
@@ -364,7 +361,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   /**
    * 投入済みを送り直す。
    *
-   * 向こうの台帳に残っている巻は「取得済み」で弾かれて返ってくるので、
+   * 棚にある巻・ジョブが残っている巻は「取得済み」で弾かれて返ってくるので、
    * 消してしまったジョブだけが入り直る。押し間違えても二重に落ちることはない。
    */
   const handleResend = async (ids: string[]) => {
@@ -786,7 +783,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                   type="button"
                   onClick={() => handleResend(missingJobs.map((c) => c.id))}
                   disabled={working}
-                  title="PowerDowner の台帳に無いものだけを送り直します"
+                  title="PowerDowner にジョブが無いものだけを送り直します"
                   className={`${subButton} ml-auto flex items-center gap-1 !text-amber-700 dark:!text-amber-300 !bg-amber-50 dark:!bg-amber-900/40 hover:!bg-amber-100 dark:hover:!bg-amber-900/60`}
                 >
                   <RotateCcw className={`w-3 h-3 ${busy === 'resend' ? 'animate-spin' : ''}`} />

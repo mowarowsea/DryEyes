@@ -233,15 +233,13 @@ export interface FeedCandidate {
   foundAt: string;
   /** pending: 投入対象 / sent: 投入済み / dismissed: 対象外 */
   status: 'pending' | 'sent' | 'dismissed';
-  /** 対象外にしたときに PowerDowner の台帳へ入れたレコード。戻すときに消す先 */
-  libraryItemId?: number | null;
   sentAt?: string | null;
   resultNote?: string | null;
 }
 
 /**
  * 候補に「PowerDowner から見た状態」を添えたもの。
- * 向こうの台帳は動くので保存せず、一覧を出すたびに聞き直す。
+ * 棚もジョブも動くので保存せず、一覧を出すたびに聞き直す。
  * 聞けなかった (PowerDowner が落ちている) ときは null。
  */
 export interface FeedCandidateWithState extends FeedCandidate {
