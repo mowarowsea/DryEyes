@@ -390,6 +390,7 @@ export interface FeedScanResult {
   watchId: string;
   status:
     | 'no-selector'   // ページ全体を見ている監視。どこを 1 件とみなすか決まらない
+    | 'no-snapshot'   // changedetection がまだ一度もページを取得していない
     | 'initialized'   // 初回。登録時点の内容を候補にしないため、ポインタだけ置いた
     | 'unchanged'     // 前回スキャンから増分なし
     | 'scanned'       // 増分から候補を作った

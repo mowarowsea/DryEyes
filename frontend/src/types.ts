@@ -297,7 +297,7 @@ export interface FeedConfig {
 
 export interface FeedScanResult {
   watchId: string;
-  status: 'no-selector' | 'initialized' | 'unchanged' | 'scanned' | 'collected';
+  status: 'no-selector' | 'no-snapshot' | 'initialized' | 'unchanged' | 'scanned' | 'collected';
   added: number;
   addedLines?: number;
   extracted?: number;

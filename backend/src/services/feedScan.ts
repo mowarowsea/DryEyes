@@ -82,14 +82,17 @@ export async function scanWatchForFeed(
 
   const history = await deps.source.getHistory(watch.id);
   const latest = history[0];
-  if (!latest) return { watchId: watch.id, status: 'unchanged', added: 0 };
 
   // 全件モードは差分を見ない。ページに並んでいるものを丸ごと候補にして、
   // どれが既にあるか・どれを落とすかを人に選ばせる
+  //
+  // 実ページを開くだけなので履歴は要らない。登録した直後 (changedetection がまだ
+  // 一度も取りに行っていない) こそ洗い出したい場面なので、履歴が空でも止めない。
+  // ポインタは置けないが、次の増分スキャンが初回扱いで置き直す
   if (options.mode === 'all') {
     const items = await deps.extract(watch.url, selectors);
     const added = addCandidates(watch.id, toEntries(items, config));
-    setPointer(watch.id, latest.timestamp);
+    if (latest) setPointer(watch.id, latest.timestamp);
     return {
       watchId: watch.id,
       status: 'collected',
@@ -98,6 +101,9 @@ export async function scanWatchForFeed(
       samples: samplesOf(items),
     };
   }
+
+  // まだ一度も取得されていない。「増分なし」と言うと、前回と比べた結果に見えてしまう
+  if (!latest) return { watchId: watch.id, status: 'no-snapshot', added: 0 };
 
   const pointer = getPointer(watch.id);
 

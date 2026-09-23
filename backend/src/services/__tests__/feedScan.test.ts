@@ -55,6 +55,27 @@ describe('scanWatchForFeed', () => {
     expect(result.status).toBe('collected');
   });
 
+  it('should collect everything even before changedetection has taken a snapshot', async () => {
+    // 登録直後こそ洗い出したい。全件モードは実ページしか見ないので、履歴が空でも止めない
+    const result = await scanWatchForFeed(
+      watchOf('s1b'),
+      {
+        source: sourceOf({}),
+        extract: extractOf([{ text: 'Koisuru Kiseichu v01-03.rar', urls: ['https://a.example/1-3'] }]),
+      },
+      { mode: 'all' }
+    );
+    expect(result.status).toBe('collected');
+    expect(listCandidates({ watchId: 's1b' })).toHaveLength(1);
+    // 比べる元が無いのでポインタは置かない。次の増分スキャンが初回として置く
+    expect(getPointer('s1b')).toBeNull();
+  });
+
+  it('should not call an empty history "unchanged"', async () => {
+    const result = await scanWatchForFeed(watchOf('s1c'), { source: sourceOf({}), extract: extractOf([]) });
+    expect(result.status).toBe('no-snapshot');
+  });
+
   it('should skip a watch that has no selector', async () => {
     const result = await scanWatchForFeed(watchOf('s2', []), { source: sourceOf({ 100: 'a' }), extract: extractOf([]) });
     expect(result.status).toBe('no-selector');

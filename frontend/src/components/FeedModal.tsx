@@ -38,6 +38,8 @@ interface FeedModalProps {
 
 const SCAN_MESSAGE: Record<FeedScanResult['status'], string> = {
   'no-selector': '監視する要素が指定されていないため、どこを 1 件とみなすか決められません。',
+  'no-snapshot':
+    'まだ一度もページを取得していないので、比べる元がありません。「全件を洗い出す」ならいま並んでいるものを出せます。',
   initialized: '初回なので増分はありません。「全件を洗い出す」でいま並んでいるものを出せます。',
   unchanged: '前回の取り込みから増分はありません。',
   scanned: '',
