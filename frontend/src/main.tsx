@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+// ヘッダのロゴ文字用。欧文だけなので latin サブセットの太字1本に絞っている。
+import '@fontsource/fredoka/latin-600.css';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

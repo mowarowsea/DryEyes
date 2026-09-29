@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { AppMark } from './AppMark';
 
 interface SearchHeaderProps {
@@ -13,16 +13,21 @@ interface SearchHeaderProps {
 export const SearchHeader: React.FC<SearchHeaderProps> = ({ value, onChange }) => (
   <header className="sticky top-0 z-30 bg-slate-100/90 dark:bg-slate-950/90 backdrop-blur border-b border-slate-200 dark:border-slate-800">
     <div className="max-w-3xl mx-auto px-4 py-3 pr-16 flex items-center gap-2.5">
-      <AppMark className="w-9 h-9 rounded-xl shadow-md shadow-indigo-100 dark:shadow-none flex-shrink-0" />
+      <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        <AppMark className="w-9 h-9 rounded-xl shadow-md shadow-indigo-100 dark:shadow-none" />
+        <h1 className="font-logo font-semibold text-xl sm:text-2xl leading-none tracking-tight select-none">
+          <span className="text-slate-800 dark:text-slate-100">Dry</span>
+          <span className="text-indigo-600 dark:text-indigo-400">Eyes</span>
+        </h1>
+      </div>
 
       <div className="relative flex-1 min-w-0">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
         <input
           type="text"
-          placeholder="タイトルやURLで検索..."
+          placeholder="タイトルやURLで検索"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full pl-9 pr-9 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition shadow-sm"
+          className={`w-full pl-3 ${value ? 'pr-9' : 'pr-3'} py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition shadow-sm`}
         />
         {/* 入力中だけ出す消去ボタン。スマホでは文字を消すのに何度も削除キーを押すことになるため。 */}
         {value && (
