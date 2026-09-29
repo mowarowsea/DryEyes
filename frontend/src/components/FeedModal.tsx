@@ -34,7 +34,14 @@ interface FeedModalProps {
   watch: WatchModel | null;
   isOpen: boolean;
   onClose: () => void;
+  /** 保存・投入の結果をモーダルの外 (トースト) で知らせる */
+  onNotify?: (message: string) => void;
 }
+
+/** 投入先が未設定のとき既定で選ぶ PowerDowner のユーザー。蔵書 (Pinax) の棚に入れる口 */
+const DEFAULT_USER_NAME = 'pinax';
+
+type NameSource = 'pinax' | 'manual';
 
 const SCAN_MESSAGE: Record<FeedScanResult['status'], string> = {
   'no-selector': '監視する要素が指定されていないため、どこを 1 件とみなすか決められません。',
@@ -118,7 +125,7 @@ const CandidateLabel: React.FC<{ parts: LabelParts; bodyClass: string }> = ({ pa
   </p>
 );
 
-export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) => {
+export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, onNotify }) => {
   const [config, setConfig] = useState<FeedConfig | null>(null);
   const [users, setUsers] = useState<PowerdownerUser[]>([]);
   // 一覧を取れなかった理由。握り潰すと投入先が ID の手入力に落ちた訳が画面から消える
@@ -137,6 +144,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 作者・作品名の決め方。蔵書から選ぶか手で書くかのどちらか一方だけを見せる
+  const [nameSource, setNameSource] = useState<NameSource>('pinax');
   const [excludedOpen, setExcludedOpen] = useState(false);
   const [sentOpen, setSentOpen] = useState(false);
   // 候補が 0 件だったスキャンの控え。何が取れていたのかを見せて原因を切り分ける。
@@ -190,6 +199,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setSamples(undefined);
     setExcludedOpen(false);
     setSentOpen(false);
+    setNameSource('pinax');
     load(watch.id, true);
     // PowerDowner が止まっていても画面は使えるようにする (手入力に落とす)
     loadUsers();
@@ -208,7 +218,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
    * 人が書いたものは上書きしない。
    */
   useEffect(() => {
-    if (!isOpen || !settingsOpen) return;
+    if (!isOpen || !settingsOpen || nameSource !== 'pinax') return;
     const q = shelfQuery.trim();
     if (!q) {
       setShelfHits([]);
@@ -247,7 +257,17 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
       alive = false;
       clearTimeout(timer);
     };
-  }, [isOpen, settingsOpen, shelfQuery]);
+  }, [isOpen, settingsOpen, nameSource, shelfQuery]);
+
+  /**
+   * 投入先が決まっていなければ、PowerDowner に pinax が居ればそれを既定にする。
+   * 保存するまでは下書きなので、選び直せば済む。
+   */
+  useEffect(() => {
+    if (!config || config.userId !== null) return;
+    const fallback = users.find((u) => u.name.toLowerCase() === DEFAULT_USER_NAME);
+    if (fallback) setConfig({ ...config, userId: fallback.id });
+  }, [config, users]);
 
   // 「どこが違うか」は並んでいるものの間で決まるので、区分ごとに切り分ける。
   // 下の読み込み中の分岐より前に置くこと (フックの数がレンダーで変わると React が落ちる)
@@ -276,8 +296,10 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     setBusy('save');
     setError(null);
     try {
-      setConfig(await api.saveFeedConfig(watch.id, config));
-      setNotice('設定を保存しました');
+      // 保存先は投入先ユーザーの既定に任せる。好きな場所に落としたければ PowerDowner 側で
+      setConfig(await api.saveFeedConfig(watch.id, { ...config, destDir: null }));
+      setSettingsOpen(false);
+      onNotify?.('設定を保存しました');
     } catch (err: any) {
       setError(err.message || '設定の保存に失敗しました');
     } finally {
@@ -318,11 +340,17 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
     try {
       // 対象に残っているものを全部送る。落としたくないものは × で対象外にしておく
       const summary = await api.sendFeedCandidates(candidates.map((c) => c.id));
-      const parts = [`${summary.sent} 件を投入しました`];
+      const parts = [`${summary.sent} 件を PowerDowner に投入しました`];
       if (summary.ignored.length > 0) parts.push(`${summary.ignored.length} 件は送りませんでした`);
-      if (summary.errors.length > 0) parts.push(summary.errors.map((e) => e.message).join(' / '));
-      setNotice(parts.join('。'));
-      await load(watch.id);
+      if (summary.errors.length > 0) {
+        // 失敗が混じったときは閉じない。何が残ったのかをこの画面で見られるように
+        parts.push(summary.errors.map((e) => e.message).join(' / '));
+        setNotice(parts.join('。'));
+        await load(watch.id);
+        return;
+      }
+      onNotify?.(parts.join('。'));
+      onClose();
     } catch (err: any) {
       setError(err.message || '投入に失敗しました');
     } finally {
@@ -456,106 +484,128 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose }) 
                 )}
               </div>
 
-              {/* 蔵書 (Pinax) から作者と作品名を借りる。
-                  手で書くと棚と 1 文字違うだけで別フォルダに割れるので、
-                  既に棚にある綴りをそのまま選べるようにしておく */}
+              {/* 作者と作品名の決め方は 2 通り。どちらか一方しか使わないので、タブで片方だけ見せる。
+                  蔵書 (Pinax) から: 手で書くと棚と 1 文字違うだけで別フォルダに割れるので、
+                  既に棚にある綴りをそのまま選ぶ。
+                  手入力: 棚にまだ無い作品。監視 1 件 = 1 作品で、行に載っているのは巻数だけという
+                  サイトが多いので、ここで 1 回決めてしまう */}
               <div>
-                <label className={labelClass}>蔵書 (Pinax) から取り込む</label>
-                <div className="relative">
-                  <Library className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={shelfQuery}
-                    onChange={(e) => setShelfQuery(e.target.value)}
-                    placeholder="作品名か作者名で探す"
-                    className={`${inputClass} pl-8`}
-                  />
-                  {shelfBusy && (
-                    <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 animate-spin" />
-                  )}
+                <div className="flex items-end justify-between gap-2 mb-1">
+                  <span className={`${labelClass} !mb-0`}>作者・作品名</span>
+                  <div role="tablist" className="flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-[11px]">
+                    {(
+                      [
+                        ['pinax', '蔵書 (Pinax) から'],
+                        ['manual', '手入力'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="tab"
+                        aria-selected={nameSource === key}
+                        onClick={() => setNameSource(key)}
+                        className={`px-2 py-0.5 rounded-md transition ${
+                          nameSource === key
+                            ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-slate-100 shadow-sm font-medium'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {shelfError ? (
-                  // 蔵書が止まっていても投入設定は手入力で使える。邪魔しない濃さで出す
-                  <p className="mt-1 text-[11px] text-slate-400 leading-tight">{shelfError}</p>
-                ) : shelfHits.length > 0 ? (
-                  <ul className="mt-1 border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-100 dark:divide-slate-800 max-h-40 overflow-y-auto">
-                    {shelfHits.map((hit) => {
-                      const chosen =
-                        (config.title ?? '') === hit.title && (config.author ?? '') === (hit.author ?? '');
-                      return (
-                        <li key={hit.id}>
-                          <button
-                            type="button"
-                            onClick={() => patch({ author: hit.author, title: hit.title })}
-                            className={`w-full text-left px-2.5 py-1.5 transition ${
-                              chosen
-                                ? 'bg-indigo-50 dark:bg-indigo-900/30'
-                                : 'hover:bg-slate-50 dark:hover:bg-slate-800'
-                            }`}
-                          >
-                            <span className="flex items-center gap-1.5">
-                              <span className="flex-1 min-w-0 truncate text-[11px] font-medium text-slate-800 dark:text-slate-100">
-                                {hit.title}
-                              </span>
-                              {chosen && (
-                                <span className="shrink-0 text-[10px] text-indigo-600 dark:text-indigo-400">
-                                  選択中
+                {nameSource === 'pinax' ? (
+                  <>
+                    <div className="relative">
+                      <Library className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={shelfQuery}
+                        onChange={(e) => setShelfQuery(e.target.value)}
+                        placeholder="作品名か作者名で探す"
+                        className={`${inputClass} pl-8`}
+                      />
+                      {shelfBusy && (
+                        <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 animate-spin" />
+                      )}
+                    </div>
+
+                    {shelfError ? (
+                      // 蔵書が止まっていても投入設定は手入力で使える。邪魔しない濃さで出す
+                      <p className="mt-1 text-[11px] text-slate-400 leading-tight">{shelfError}</p>
+                    ) : shelfHits.length > 0 ? (
+                      <ul className="mt-1 border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-100 dark:divide-slate-800 max-h-40 overflow-y-auto">
+                        {shelfHits.map((hit) => {
+                          const chosen =
+                            (config.title ?? '') === hit.title && (config.author ?? '') === (hit.author ?? '');
+                          return (
+                            <li key={hit.id}>
+                              <button
+                                type="button"
+                                onClick={() => patch({ author: hit.author, title: hit.title })}
+                                className={`w-full text-left px-2.5 py-1.5 transition ${
+                                  chosen
+                                    ? 'bg-indigo-50 dark:bg-indigo-900/30'
+                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <span className="flex-1 min-w-0 truncate text-[11px] font-medium text-slate-800 dark:text-slate-100">
+                                    {hit.title}
+                                  </span>
+                                  {chosen && (
+                                    <span className="shrink-0 text-[10px] text-indigo-600 dark:text-indigo-400">
+                                      選択中
+                                    </span>
+                                  )}
+                                  <span className="shrink-0 text-[10px] text-slate-400">{hit.files}冊</span>
                                 </span>
-                              )}
-                              <span className="shrink-0 text-[10px] text-slate-400">{hit.files}冊</span>
-                            </span>
-                            <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">
-                              {hit.author || '作者なし'}
-                              {/* 「続きが出ている — 8〜15巻が未所持」。落とす価値がここで分かる */}
-                              {hit.shelf ? ` · ${hit.shelf}` : ''}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : shelfQuery.trim() && !shelfBusy ? (
-                  <p className="mt-1 text-[11px] text-slate-400 leading-tight">
-                    棚に見当たりません。下の欄に直接書けます。
-                  </p>
-                ) : null}
-              </div>
-
-              {/* 監視 1 件 = 1 作品。行に載っているのは巻数だけというサイトが多いので、
-                  作者とタイトルはここで 1 回決めてしまう */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelClass}>作者</label>
-                  <input
-                    type="text"
-                    value={config.author ?? ''}
-                    onChange={(e) => patch({ author: e.target.value || null })}
-                    placeholder="ファイル名に付ける作者名"
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>作品タイトル</label>
-                  <input
-                    type="text"
-                    value={config.title ?? ''}
-                    onChange={(e) => patch({ title: e.target.value || null })}
-                    placeholder={watch.title}
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>保存先 (空なら投入先ユーザーの既定)</label>
-                <input
-                  type="text"
-                  value={config.destDir ?? ''}
-                  onChange={(e) => patch({ destDir: e.target.value || null })}
-                  placeholder={currentUser?.defaultDir ?? '空欄で既定'}
-                  className={inputClass}
-                />
+                                <span className="block truncate text-[10px] text-slate-500 dark:text-slate-400">
+                                  {hit.author || '作者なし'}
+                                  {/* 「続きが出ている — 8〜15巻が未所持」。落とす価値がここで分かる */}
+                                  {hit.shelf ? ` · ${hit.shelf}` : ''}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : shelfQuery.trim() && !shelfBusy ? (
+                      <p className="mt-1 text-[11px] text-slate-400 leading-tight">
+                        棚に見当たりません。「手入力」で直接書けます。
+                      </p>
+                    ) : null}
+                    {/* 検索結果に今の設定が無いとき (手入力で決めた・検索語を変えた) も、何が入っているかは見せる */}
+                    {config.title && !shelfHits.some((hit) => hit.title === config.title) && (
+                      <p className="mt-1 text-[10px] text-slate-400 truncate">
+                        いまの設定: {config.author ? `${config.author} / ` : ''}
+                        {config.title}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      value={config.author ?? ''}
+                      onChange={(e) => patch({ author: e.target.value || null })}
+                      placeholder="作者"
+                      aria-label="作者"
+                      className={inputClass}
+                    />
+                    <input
+                      type="text"
+                      value={config.title ?? ''}
+                      onChange={(e) => patch({ title: e.target.value || null })}
+                      placeholder={watch.title}
+                      aria-label="作品タイトル"
+                      className={inputClass}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* 取り込み自体は監視のチェックに付いて自動で走るので、スイッチは無い。

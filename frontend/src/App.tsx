@@ -434,6 +434,7 @@ export default function App() {
         watch={feedTargetWatch}
         isOpen={!!feedTargetWatch}
         onClose={() => setFeedTargetWatch(null)}
+        onNotify={showToast}
       />
 
       {user && (
