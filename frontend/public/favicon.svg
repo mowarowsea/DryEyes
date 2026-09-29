@@ -1,5 +1,6 @@
 <!-- DryEyes のアイコン原本。見張りすぎて乾いた目、というモチーフの線画。
      - 半目 + 見下ろした瞳で「ずっと見ている」割に力を抜いた表情にしている
+     - 白目がうっすらピンクなのは、乾いて充血しているから
      - 右目から垂れているのは、乾き対策の目薬のしずく（プロダクト名の由来）
      PNG 各サイズ（PWA / apple-touch / png フォールバック）は
      scripts/render-icons.sh がこの SVG から書き出す。 -->
@@ -21,14 +22,16 @@
   <g id="art">
     <!-- しずくと右目は輪郭がつながって見えてほしい。そこで
          「太い線で描く → 内側を塗り直して線を半分に戻す」順序で重ねている。 -->
-    <ellipse cx="166" cy="222" rx="94" ry="128" fill="#ffffff"/>
-    <ellipse cx="346" cy="222" rx="94" ry="128" fill="#ffffff"/>
+    <ellipse cx="166" cy="222" rx="94" ry="128" fill="#faeded"/>
+    <ellipse cx="346" cy="222" rx="94" ry="128" fill="#faeded"/>
     <path d="M322 292 L322 388 A24 24 0 0 0 370 388 L370 292 Z"
           fill="#ffffff" stroke="#1e1b4b" stroke-width="44" stroke-linejoin="round"/>
-    <ellipse cx="346" cy="222" rx="94" ry="128" fill="#ffffff"/>
+    <ellipse cx="346" cy="222" rx="94" ry="128" fill="#faeded"/>
     <ellipse cx="166" cy="222" rx="94" ry="128" fill="none" stroke="#1e1b4b" stroke-width="22"/>
     <ellipse cx="346" cy="222" rx="94" ry="128" fill="none" stroke="#1e1b4b" stroke-width="22"/>
     <path d="M322 292 L322 388 A24 24 0 0 0 370 388 L370 292 Z" fill="#ffffff"/>
+    <!-- しずくの付け根は目の中に食い込んでいるので、そこだけ白目の色に戻す -->
+    <path d="M322 292 L322 388 A24 24 0 0 0 370 388 L370 292 Z" fill="#faeded" clip-path="url(#eyeR)"/>
 
     <g clip-path="url(#eyeL)">
       <g clip-path="url(#underL)"><ellipse cx="184" cy="252" rx="45" ry="70" fill="#1e1b4b"/></g>

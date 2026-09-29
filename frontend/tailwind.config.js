@@ -6,7 +6,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        logo: ['Fredoka', 'ui-rounded', 'sans-serif'],
+        logo: ['Nunito', 'ui-rounded', 'sans-serif'],
       },
       colors: {
         brand: {

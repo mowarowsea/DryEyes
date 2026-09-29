@@ -15,8 +15,8 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ value, onChange }) =
     <div className="max-w-3xl mx-auto px-4 py-3 pr-16 flex items-center gap-2.5">
       <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
         <AppMark className="w-9 h-9 rounded-xl shadow-md shadow-indigo-100 dark:shadow-none" />
-        <h1 className="font-logo font-semibold text-xl sm:text-2xl leading-none tracking-tight select-none">
-          <span className="text-slate-800 dark:text-slate-100">Dry</span>
+        <h1 className="font-logo font-extrabold text-xl sm:text-2xl leading-none tracking-tight select-none">
+          <span className="text-slate-800 dark:text-[#faeded]">Dry</span>
           <span className="text-indigo-600 dark:text-indigo-400">Eyes</span>
         </h1>
       </div>
