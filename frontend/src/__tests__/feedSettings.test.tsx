@@ -64,6 +64,7 @@ beforeEach(() => {
   ]);
   vi.spyOn(api, 'searchPinaxSeries').mockResolvedValue([]);
   vi.spyOn(api, 'sendFeedCandidates').mockResolvedValue({ sent: 1, results: [], errors: [], ignored: [] });
+  vi.spyOn(api, 'scanFeed').mockResolvedValue({ status: 'collected', added: 0 } as any);
 });
 
 afterEach(() => {
@@ -126,5 +127,48 @@ describe('投入設定', () => {
     fireEvent.click(await screen.findByText('1 件を投入'));
     expect(await screen.findByText(/PowerDowner に繋がりません/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('開いたときの洗い出し', () => {
+  it('まだ何も取り込んでいなければ、開いた時点で全件を洗い出す', async () => {
+    config = { ...baseConfig, userId: 1 };
+    vi.mocked(api.scanFeed).mockImplementation(async () => {
+      candidates = [pending];
+      return { status: 'collected', added: 1, extracted: 1 } as any;
+    });
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} />);
+
+    expect(await screen.findByText('1 件を投入')).toBeInTheDocument();
+    expect(api.scanFeed).toHaveBeenCalledTimes(1);
+    expect(api.scanFeed).toHaveBeenCalledWith(watch.id, true);
+    expect(screen.getByText(/ページ全体から 1 件を候補にしました/)).toBeInTheDocument();
+  });
+
+  it('洗い出している間も投入設定は保存できる', async () => {
+    let finish: () => void = () => {};
+    vi.mocked(api.scanFeed).mockImplementation(
+      () => new Promise((resolve) => (finish = () => resolve({ status: 'collected', added: 0 } as any)))
+    );
+    const onNotify = vi.fn();
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} onNotify={onNotify} />);
+
+    expect(await screen.findByText(/洗い出しています/)).toBeInTheDocument();
+    const save = screen.getByText('設定を保存');
+    expect(save).not.toBeDisabled();
+    expect(screen.getByText('全件を洗い出す')).toBeDisabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith('設定を保存しました'));
+    finish();
+    await waitFor(() => expect(screen.queryByText(/洗い出しています/)).not.toBeInTheDocument());
+  });
+
+  it('一度でも取り込んだことがあれば勝手には洗い出さない', async () => {
+    config = { ...baseConfig, userId: 1 };
+    candidates = [pending];
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} />);
+
+    expect(await screen.findByText('1 件を投入')).toBeInTheDocument();
+    expect(api.scanFeed).not.toHaveBeenCalled();
   });
 });

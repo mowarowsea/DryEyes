@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Library, Link2, Loader2, RefreshCw, RotateCcw, Send, Undo2, X } from 'lucide-react';
 import {
   FeedCandidateWithState,
@@ -18,7 +18,7 @@ import { guessSeriesQuery } from '../seriesQuery';
 //
 // 想定している流れは 2 段構え:
 //   1. 登録直後は「全件を洗い出す」でページに並んでいるものを丸ごと出し、
-//      対象と対象外に振り分ける
+//      対象と対象外に振り分ける。まだ何も取り込んでいなければ、開いた時点で自動で走る
 //   2. 決まったら「確認なしで投入する」を立てて任せる
 //
 // 区分けは対象／対象外の 2 つだけ。「今は落とさないが後で落とすかもしれない」は
@@ -52,6 +52,15 @@ const SCAN_MESSAGE: Record<FeedScanResult['status'], string> = {
   scanned: '',
   collected: '',
 };
+
+/** スキャン結果を 1 行で。「増えた行」と「取れた要素」を添えるのは、候補が 0 件だったときに
+ *  差分が無かったのかセレクタが外れているのかを切り分けるため */
+const scanNotice = (result: FeedScanResult): string =>
+  result.status === 'scanned'
+    ? `${result.added} 件を追加 (増えた行 ${result.addedLines ?? 0} / 取れた要素 ${result.extracted ?? 0})`
+    : result.status === 'collected'
+      ? `ページ全体から ${result.added} 件を候補にしました (取れた要素 ${result.extracted ?? 0})`
+      : SCAN_MESSAGE[result.status];
 
 /** PowerDowner から見た状態。既に手元にあるものを投入対象から外すために使う */
 const STATE_BADGE: Record<'skip' | 'merge', { label: string; className: string }> = {
@@ -153,6 +162,12 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   // 候補が出たスキャンでは持たない。持ち越すと、投入して対象が空になっただけの画面に
   // 「取れませんでした」の説明が残り、うまくいった操作を失敗に見せてしまう。
   const [samples, setSamples] = useState<FeedScanResult['samples']>(undefined);
+  // 開いた時点で自動で走らせている「全件を洗い出す」。busy とは分けておき、
+  // その間も投入設定は触れて保存もできるようにする (設定を見ている間に一覧が揃うのが狙い)
+  const [autoScanning, setAutoScanning] = useState(false);
+  // 自動の洗い出しは 1 回開くにつき 1 回まで。watch が差し替わって effect が
+  // 走り直しても、同じ監視で二重に投げない
+  const autoScannedFor = useRef<string | null>(null);
 
   /**
    * initial はモーダルを開いた最初の 1 回だけ true。
@@ -170,7 +185,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
     }
   }, []);
 
-  const load = useCallback(async (watchId: string, initial = false) => {
+  /** 戻り値は「対象・対象外・投入済みのどれも空だったか」。取れなかったときは false */
+  const load = useCallback(async (watchId: string, initial = false): Promise<boolean> => {
     setBusy('load');
     setError(null);
     try {
@@ -186,21 +202,46 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
       setSent(alreadySent);
       // 投入先が決まっていない間は設定を開いておく
       if (initial) setSettingsOpen(loadedConfig.userId === null);
+      return pending.length === 0 && dismissed.length === 0 && alreadySent.length === 0;
     } catch (err: any) {
       setError(err.message || '読み込みに失敗しました');
+      return false;
     } finally {
       setBusy(null);
     }
   }, []);
 
   useEffect(() => {
+    if (!isOpen) autoScannedFor.current = null;
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !watch) return;
+    let alive = true;
     setNotice(null);
     setSamples(undefined);
     setExcludedOpen(false);
     setSentOpen(false);
     setNameSource('pinax');
-    load(watch.id, true);
+    const watchId = watch.id;
+    // まだ一度も洗い出していない監視 (どの区分も空) なら、開いたそのままで全件を洗い出す。
+    // 押すボタンが 1 つ減るだけでなく、投入設定を確かめている間に一覧が揃う
+    load(watchId, true).then(async (empty) => {
+      if (!alive || !empty || autoScannedFor.current === watchId) return;
+      autoScannedFor.current = watchId;
+      setAutoScanning(true);
+      try {
+        const result = await api.scanFeed(watchId, true);
+        if (!alive) return;
+        setNotice(scanNotice(result));
+        setSamples(result.added === 0 ? result.samples : undefined);
+        await load(watchId);
+      } catch (err: any) {
+        if (alive) setError(err.message || '候補の作成に失敗しました');
+      } finally {
+        if (alive) setAutoScanning(false);
+      }
+    });
     // PowerDowner が止まっていても画面は使えるようにする (手入力に落とす)
     loadUsers();
     // 監視のタイトルから作品名を起こして、蔵書の検索欄に入れておく。
@@ -208,6 +249,10 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
     setShelfQuery(guessSeriesQuery(watch.title));
     setShelfHits([]);
     setShelfError(null);
+    return () => {
+      alive = false;
+      setAutoScanning(false);
+    };
   }, [isOpen, watch, load, loadUsers]);
 
   /**
@@ -287,6 +332,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
 
   const patch = (next: Partial<FeedConfig>) => setConfig({ ...config, ...next });
   const working = busy !== null;
+  // 取り込み系は自動の洗い出しとぶつかるので止める。設定の保存は止めない
+  const scanLocked = working || autoScanning;
   const currentUser = users.find((u) => u.id === config.userId) ?? null;
   // 投入済みのうち、PowerDowner に見当たらないもの (向こうでジョブを消した分)
   const missingJobs = sent.filter(isMissingJob);
@@ -313,15 +360,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
     setNotice(null);
     try {
       const result = await api.scanFeed(watch.id, all);
-      // 「増えた行」と「取れた要素」を添えるのは、候補が 0 件だったときに
-      // 差分が無かったのかセレクタが外れているのかを切り分けるため
-      setNotice(
-        result.status === 'scanned'
-          ? `${result.added} 件を追加 (増えた行 ${result.addedLines ?? 0} / 取れた要素 ${result.extracted ?? 0})`
-          : result.status === 'collected'
-            ? `ページ全体から ${result.added} 件を候補にしました (取れた要素 ${result.extracted ?? 0})`
-            : SCAN_MESSAGE[result.status]
-      );
+      setNotice(scanNotice(result));
       // 候補が出たなら説明は要らない (下の空表示に持ち越さない)
       setSamples(result.added === 0 ? result.samples : undefined);
       await load(watch.id);
@@ -631,16 +670,16 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
 
         {/* --- 取り込み --- */}
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => handleScan(true)} disabled={working} className={subButton}>
+          <button type="button" onClick={() => handleScan(true)} disabled={scanLocked} className={subButton}>
             全件を洗い出す
           </button>
           <button
             type="button"
             onClick={() => handleScan(false)}
-            disabled={working}
+            disabled={scanLocked}
             className={`${subButton} flex items-center gap-1`}
           >
-            <RefreshCw className={`w-3 h-3 ${busy === 'scan' ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3 h-3 ${busy === 'scan' || autoScanning ? 'animate-spin' : ''}`} />
             増分を取り込む
           </button>
           {notice && (
@@ -662,7 +701,12 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
           </div>
 
           {candidates.length === 0 ? (
-            samples && samples.length > 0 ? (
+            autoScanning ? (
+              <p className="py-5 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ページに並んでいるものを洗い出しています...
+              </p>
+            ) : samples && samples.length > 0 ? (
               // 要素は取れているのに候補にならなかったとき。
               // セレクタが外れているのか、リンクが取れていないのかをここで切り分ける
               <div className="space-y-1">
@@ -910,7 +954,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
           <button
             type="button"
             onClick={handleSend}
-            disabled={working || candidates.length === 0}
+            disabled={scanLocked || candidates.length === 0}
             className={`${submitButtonClass} !px-3 !py-1.5 !text-xs`}
           >
             {busy === 'send' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
