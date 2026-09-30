@@ -1,7 +1,7 @@
 import { changedetectionClient } from './changedetection.js';
 import { scanWatchForFeed } from './feedScan.js';
 import { sendCandidates } from './feedSend.js';
-import { getFeedConfig, getPointer, listCandidates } from './feedStore.js';
+import { getFeedConfig, getPointer, listCandidates, withFeedMeta } from './feedStore.js';
 import { getOwner } from './ownership.js';
 import { WatchModel } from '../types/index.js';
 
@@ -48,8 +48,12 @@ export function resetFeedAutoScanState(): void {
  * 投入先を選ぶこと自体が「この監視はダウンロードに繋ぐ」という意思表示なので、
  * それとは別に「巡回する / しない」のスイッチは持たせない。
  */
-function shouldFollow(watch: WatchModel): boolean {
-  if (getFeedConfig(watch.id).userId === null) return false;
+function isWired(watch: WatchModel): boolean {
+  return getFeedConfig(watch.id).userId !== null;
+}
+
+/** 増分を取り込みに行く必要があるか。ページが動いた時だけ開く */
+function needsScan(watch: WatchModel): boolean {
   // 停止中の監視はスナップショットが増えない
   if (watch.paused) return false;
 
@@ -58,6 +62,21 @@ function shouldFollow(watch: WatchModel): boolean {
   if (!pointer) return true;
   // 前回取り込んだところから動いていなければ、開くだけ無駄になる
   return (watch.lastChanged ?? 0) > pointer.snapshotTimestamp;
+}
+
+/**
+ * 送り残しがあるか。
+ *
+ * **取り込みとは別に見ること。** 取り込んだ時点でポインタは進むので、そのあと投入が
+ * 転ぶと (PowerDowner が止まっていた・上限で次回に回された) ページが次に動くまで
+ * needsScan は立たない。週刊の作品なら 1 週間、完結した作品なら永久に送られない。
+ *
+ * 作品名が決まらない候補は送っても手前で止まる (feedSend) ので数えない —
+ * 数えると設定し忘れの監視を 5 分おきに叩き続けるだけになる。
+ */
+function hasSendable(watch: WatchModel): boolean {
+  if (!getFeedConfig(watch.id).autoSend) return false;
+  return listCandidates({ watchId: watch.id, status: 'pending' }).some((c) => !!withFeedMeta(c).meta.title);
 }
 
 export async function runFeedScan(deps: FeedAutoScanDeps = defaultDeps): Promise<FeedAutoScanSummary> {
@@ -69,12 +88,16 @@ export async function runFeedScan(deps: FeedAutoScanDeps = defaultDeps): Promise
   try {
     const watches = await deps.listWatches();
     for (const watch of watches) {
-      if (!shouldFollow(watch)) continue;
+      if (!isWired(watch)) continue;
+      const scan = needsScan(watch);
+      if (!scan && !hasSendable(watch)) continue;
 
       try {
-        const result = await deps.scan(watch);
-        summary.scanned++;
-        summary.added += result.added;
+        if (scan) {
+          const result = await deps.scan(watch);
+          summary.scanned++;
+          summary.added += result.added;
+        }
 
         if (!getFeedConfig(watch.id).autoSend) continue;
 
@@ -82,7 +105,8 @@ export async function runFeedScan(deps: FeedAutoScanDeps = defaultDeps): Promise
         const owner = getOwner(watch.id);
         if (!owner) continue;
 
-        // 未処理のものをまとめて送る。前回投入に失敗して残ったものもここで拾い直す
+        // 未処理のものをまとめて送る。前回投入に失敗して残ったものも、ページが動いていなくても
+        // ここで拾い直す (hasSendable)
         const pending = listCandidates({ watchId: watch.id, status: 'pending' });
         if (pending.length === 0) continue;
 

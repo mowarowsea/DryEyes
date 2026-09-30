@@ -158,6 +158,53 @@ describe('runFeedScan', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  // 取り込んだ時点でポインタは進むので、投入が転ぶとページが動くまで追いかけられなくなる。
+  // 送り残しは取り込みとは別に拾い直す
+  it('should retry leftover pending candidates even when the page has not changed', async () => {
+    setFeedConfig('r1', { autoSend: true, userId: 1 });
+    assignOwner('r1', 'user-1');
+    setPointer('r1', 2000);
+    seedCandidate('r1');
+
+    const scan = scanned(0);
+    const send = sentOk();
+    const summary = await runFeedScan({
+      listWatches: async () => [watchOf('r1', { lastChanged: 2000 })],
+      scan,
+      send: send as never,
+    });
+
+    expect(scan).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(summary.sent).toBe(1);
+  });
+
+  it('should leave leftover pending candidates alone while autoSend is off', async () => {
+    setFeedConfig('r2', { autoSend: false, userId: 1 });
+    assignOwner('r2', 'user-1');
+    setPointer('r2', 2000);
+    seedCandidate('r2');
+
+    const send = sentOk();
+    await runFeedScan({ listWatches: async () => [watchOf('r2', { lastChanged: 2000 })], scan: scanned(0), send: send as never });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('should not keep retrying candidates that cannot be sent without a title', async () => {
+    setFeedConfig('r3', { autoSend: true, userId: 1 });
+    assignOwner('r3', 'user-1');
+    setPointer('r3', 2000);
+    addCandidates('r3', [
+      { text: '第01巻', urls: ['https://a.example/1'], meta: { title: null, author: null, volume: '1', rawText: '第01巻' } },
+    ]);
+
+    const scan = scanned(0);
+    const send = sentOk();
+    await runFeedScan({ listWatches: async () => [watchOf('r3', { lastChanged: 2000 })], scan, send: send as never });
+    expect(scan).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('should keep going when one watch throws', async () => {
     setFeedConfig('a6', { userId: 1 });
     setFeedConfig('a7', { userId: 1 });
