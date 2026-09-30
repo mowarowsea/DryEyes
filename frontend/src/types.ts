@@ -279,6 +279,8 @@ export interface FeedSummary {
   userId: number | null;
   author: string | null;
   title: string | null;
+  /** 一覧でまとめる作品名。無ければ title でまとめる */
+  group?: string | null;
 }
 
 export interface FeedConfig {
@@ -291,6 +293,8 @@ export interface FeedConfig {
   author: string | null;
   title: string | null;
   itemPattern: string | null;
+  /** 一覧でまとめる作品名。外伝を本編のカードに入れるため */
+  group?: string | null;
   userId: number | null;
   destDir: string | null;
 }
@@ -310,4 +314,28 @@ export interface FeedSendSummary {
   results: { id: string; note: string }[];
   errors: { watchId: string; message: string }[];
   ignored: { id: string; reason: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// 続きを探す (アップロードサイトの横断検索)
+// ---------------------------------------------------------------------------
+
+/** 検索するアップロードサイト。見張る場所は台帳に持たず、同じサイトの既存の監視から引き継ぐ */
+export interface SearchSite {
+  id: string;
+  label: string;
+  /** {q} が作品名に置き換わる */
+  searchUrl: string;
+  enabled: boolean;
+  lastHitAt: string | null;
+  failStreak: number;
+  lastError: string | null;
+}
+
+export interface SiteSearchResult {
+  siteId: string;
+  label: string;
+  searchUrl: string;
+  error: string | null;
+  hits: { url: string; text: string; watchedId: string | null }[];
 }

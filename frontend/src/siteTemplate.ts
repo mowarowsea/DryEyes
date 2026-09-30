@@ -13,6 +13,8 @@ export interface SiteTemplate {
   subtractedFilters: string[];
   /** 同じ場所を見ている監視の数 */
   count: number;
+  /** 見本にした監視。取得方法・間隔・投入設定もここから引き継ぐ */
+  sample: WatchModel;
 }
 
 // 先頭の www. の有無だけは同じサイトとして扱う。それ以外のサブドメインは別サイト。
@@ -62,5 +64,7 @@ export function suggestSiteTemplate(url: string, watches: WatchModel[]): SiteTem
     includeFilters: [...best[0].includeFilters],
     subtractedFilters: [...subtracted[0].subtractedFilters],
     count: best.length,
+    // ダウンロードに繋がっている監視があればそれを見本にする (投入先ごと引き継げる)
+    sample: best.find((w) => (w.feed?.userId ?? null) !== null) ?? best[0],
   };
 }

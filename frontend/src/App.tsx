@@ -11,6 +11,7 @@ import { HistoryModal } from './components/HistoryModal';
 import { FeedModal } from './components/FeedModal';
 import { RedirectReviewModal } from './components/RedirectReviewModal';
 import { CardImageModal } from './components/CardImageModal';
+import { SeriesSearchModal } from './components/SeriesSearchModal';
 import { LoginScreen } from './components/LoginScreen';
 import {
   WatchModel,
@@ -23,7 +24,7 @@ import {
 } from './types';
 import { api, authToken, setUnauthorizedHandler } from './api';
 import { similarRedirectWatches } from './redirectGroup';
-import { takePendingWatchId, takeCreateIntent, CreateIntent } from './deepLink';
+import { takePendingWatchId, takeCreateIntent, takeFindIntent, CreateIntent, FindIntent } from './deepLink';
 import { ThemeMode, applyTheme, getStoredTheme, storeTheme, watchSystemTheme } from './theme';
 import { forgetCardImage } from './hooks/useCardImage';
 import { getStoredCardImageEnabled, storeCardImageEnabled } from './cardImagePref';
@@ -68,6 +69,9 @@ export default function App() {
   const [sharedUrl, setSharedUrl] = useState<string | null>(null);
   const [pendingCreateIntent, setPendingCreateIntent] = useState<CreateIntent | null>(null);
   // 登録直後の監視を数秒だけ光らせるための ID
+  // pinax の「続きを探す」から開かれたときの作品名。ログインが済むまで持っておく
+  const [findIntent, setFindIntent] = useState<FindIntent | null>(null);
+  const [isFindModalOpen, setIsFindModalOpen] = useState(false);
   const [highlightedWatchId, setHighlightedWatchId] = useState<string | null>(null);
   const launchLinkRead = useRef(false);
   const toastTimer = useRef<number | null>(null);
@@ -106,6 +110,7 @@ export default function App() {
 
     setPendingWatchId(takePendingWatchId());
     setPendingCreateIntent(takeCreateIntent());
+    setFindIntent(takeFindIntent());
   }, []);
 
   // テーマの反映。'system' のときは端末側の設定変更にも追従する。
@@ -208,6 +213,12 @@ export default function App() {
     }
     setPendingCreateIntent(null);
   }, [pendingCreateIntent, authState, showToast]);
+
+  // 続きを探す: 見本の判定に監視の一覧を使うので、一覧が揃ってから開く
+  useEffect(() => {
+    if (!findIntent || authState !== 'ready' || !watchesLoaded) return;
+    setIsFindModalOpen(true);
+  }, [findIntent, authState, watchesLoaded]);
 
   useEffect(() => {
     if (authState !== 'ready') return;
@@ -381,6 +392,24 @@ export default function App() {
           const existing = watches.find((w) => w.id === id);
           if (existing) setDiffTargetWatch(existing);
         }}
+      />
+
+      <SeriesSearchModal
+        intent={findIntent}
+        isOpen={isFindModalOpen}
+        watches={watches}
+        onClose={() => {
+          setIsFindModalOpen(false);
+          setFindIntent(null);
+        }}
+        onOpenCreate={(url) => {
+          setIsFindModalOpen(false);
+          setFindIntent(null);
+          setSharedUrl(url);
+          setIsCreateModalOpen(true);
+        }}
+        onRegistered={() => fetchData()}
+        onNotify={showToast}
       />
 
       <EditWatchModal

@@ -21,6 +21,7 @@ const DEFAULT_CONFIG: FeedConfig = {
   author: null,
   title: null,
   itemPattern: null,
+  group: null,
   userId: null,
   destDir: null,
 };

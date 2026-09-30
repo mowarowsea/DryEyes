@@ -83,3 +83,30 @@ function extractUrl(value: string | null): string | null {
   const match = trimmed.match(/https?:\/\/\S+/i);
   return match ? match[0] : null;
 }
+
+// pinax の「続きを探す」から `…/?find=<作品名>&author=<作者>` で開かれたときの内容。
+export interface FindIntent {
+  title: string;
+  author: string | null;
+}
+
+export function takeFindIntent(): FindIntent | null {
+  if (typeof window === 'undefined') return null;
+
+  const params = new URLSearchParams(window.location.search);
+  const title = params.get('find')?.trim();
+  if (!title) return null;
+  const author = params.get('author')?.trim() || null;
+
+  // 他のリンクと同じく、読んだら消す (リロードで開き直さないように)
+  params.delete('find');
+  params.delete('author');
+  const query = params.toString();
+  window.history.replaceState(
+    {},
+    '',
+    `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+  );
+
+  return { title, author };
+}

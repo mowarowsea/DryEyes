@@ -26,7 +26,7 @@ describe('feed config', () => {
   it('should default to asking before it sends anything', () => {
     expect(getFeedConfig('w-new')).toEqual({
       autoSend: false, author: null, title: null,
-      itemPattern: null, userId: null, destDir: null,
+      itemPattern: null, group: null, userId: null, destDir: null,
     });
   });
 

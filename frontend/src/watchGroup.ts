@@ -64,7 +64,8 @@ export function groupByWork(watches: WatchModel[]): WorkGroup[] {
   const byKey = new Map<string, WorkGroup>();
 
   for (const watch of watches) {
-    const title = watch.feed?.title?.trim() || '';
+    // 外伝は title が外伝の名前でも group に本編の名前が入っている。見出しは本編の名前にする
+    const title = watch.feed?.group?.trim() || watch.feed?.title?.trim() || '';
     const key = title ? `work:${workKeyOf(title)}` : `watch:${watch.id}`;
 
     const existing = byKey.get(key);

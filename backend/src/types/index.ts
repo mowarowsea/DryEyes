@@ -35,6 +35,8 @@ export interface FeedSummary {
   userId: number | null;
   author: string | null;
   title: string | null;
+  /** 一覧でまとめる作品名。外伝を本編のカードに入れるため (無ければ title でまとめる) */
+  group: string | null;
 }
 
 export interface CreateWatchDto {
@@ -363,6 +365,11 @@ export interface FeedConfig {
    * 巻数は PowerDowner 側が元の文字列から読めるので、普通は指定しなくてよい。
    */
   itemPattern: string | null;
+  /**
+   * 一覧でまとめる作品名。title は落としたファイルの名前になるので外伝は外伝の名前にしたいが、
+   * 一覧では本編と同じカードに入れたい。pinax の「続きを探す」から登録したときに本編の名前が入る
+   */
+  group?: string | null;
   /** PowerDowner 側のユーザー */
   userId: number | null;
   /** 保存先。null なら PowerDowner のユーザー既定フォルダ */

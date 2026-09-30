@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { VisualElementPickerModal } from '../components/VisualElementPickerModal';
+import type { WatchModel } from '../types';
 
 afterEach(() => {
   cleanup();
@@ -101,6 +102,7 @@ describe('同じサイトの監視場所の引き継ぎ', () => {
     includeFilters: ['//*[@id="list"]/li/a'],
     subtractedFilters: [],
     count: 5,
+    sample: { id: 'sample' } as WatchModel,
   };
 
   const probeResult = (count: number, texts: string[]) =>

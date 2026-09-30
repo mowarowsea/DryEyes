@@ -33,12 +33,13 @@ describe('suggestSiteTemplate', () => {
       watch('c', 'https://example.com/manga/c', ['//h1']),
     ]);
 
-    expect(template).toEqual({
+    expect(template).toMatchObject({
       host: 'example.com',
       includeFilters: [LIST],
       subtractedFilters: [],
       count: 2,
     });
+    expect(template?.sample.id).toBe('a');
   });
 
   it('www. の有無は同じサイトとして扱う', () => {

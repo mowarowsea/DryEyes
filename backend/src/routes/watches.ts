@@ -73,7 +73,7 @@ function withViewState(watch: WatchModel, userId: string): WatchModel {
     lastViewedAt: getViewState(userId, watch.id)?.viewedAt ?? null,
     pendingRedirect: getPendingRedirect(watch.id),
     // 一覧の仕分けに要るぶんだけ写す。設定の編集は投入モーダル側の口で行う
-    feed: { userId: feed.userId, author: feed.author, title: feed.title },
+    feed: { userId: feed.userId, author: feed.author, title: feed.title, group: feed.group ?? null },
   };
 }
 

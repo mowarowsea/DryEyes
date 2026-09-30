@@ -213,7 +213,7 @@ feedRouter.put('/watches/:watchId', (req, res) => {
       return;
     }
   }
-  for (const key of ['author', 'title'] as const) {
+  for (const key of ['author', 'title', 'group'] as const) {
     if (body[key] !== undefined) {
       const value = body[key] === null ? null : String(body[key]).trim();
       patch[key] = value || null;

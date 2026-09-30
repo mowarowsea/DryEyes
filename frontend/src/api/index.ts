@@ -19,6 +19,8 @@ import {
   FeedConfig,
   FeedScanResult,
   FeedSendSummary,
+  SearchSite,
+  SiteSearchResult,
   PinaxSeries,
   PowerdownerUser,
 } from '../types';
@@ -399,5 +401,46 @@ export const api = {
     });
     if (!res.ok) throw new Error(await errorMessage(res, '候補の作成に失敗しました'));
     return res.json();
+  },
+
+  // --- 続きを探す -------------------------------------------------------
+
+  // 台帳のサイトを作品名で横断検索する。失敗したサイトも error 付きで返る
+  async searchSeriesSites(q: string): Promise<SiteSearchResult[]> {
+    const res = await request(`/series-search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error(await errorMessage(res, '検索に失敗しました'));
+    return res.json();
+  },
+
+  async listSearchSites(): Promise<SearchSite[]> {
+    const res = await request('/series-search/sites');
+    if (!res.ok) throw new Error(await errorMessage(res, 'サイト台帳の取得に失敗しました'));
+    return res.json();
+  },
+
+  async addSearchSite(label: string, searchUrl: string): Promise<SearchSite> {
+    const res = await request('/series-search/sites', {
+      method: 'POST',
+      body: JSON.stringify({ label, searchUrl }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, 'サイトの追加に失敗しました'));
+    return res.json();
+  },
+
+  async updateSearchSite(
+    id: string,
+    patch: Partial<Pick<SearchSite, 'label' | 'searchUrl' | 'enabled'>>
+  ): Promise<SearchSite> {
+    const res = await request(`/series-search/sites/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, 'サイトの更新に失敗しました'));
+    return res.json();
+  },
+
+  async removeSearchSite(id: string): Promise<void> {
+    const res = await request(`/series-search/sites/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await errorMessage(res, 'サイトの削除に失敗しました'));
   },
 };
