@@ -159,7 +159,10 @@ const VolumeEditor: React.FC<{
   const [draft, setDraft] = useState('');
   // Esc で閉じた欄が外れるときの blur で保存しないための印
   const cancelled = useRef(false);
-  const label = volumeLabel(candidate);
+  // 判定が付いていない (PowerDowner に聞けていない) ときも、人が入れた巻数は見せる
+  const label =
+    volumeLabel(candidate) ??
+    (!candidate.powerdowner && candidate.meta.volume ? `第${candidate.meta.volume}巻` : null);
   // 巻数を読めていないと「もう持っているか」の判定に参加できないので目立たせる
   const unreadable = !!candidate.powerdowner && candidate.powerdowner.volumeFrom === null;
 
@@ -391,10 +394,30 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
    * 保存するまでは下書きなので、選び直せば済む。
    */
   useEffect(() => {
-    if (!config || config.userId !== null) return;
+    if (!config || config.userId !== null || !watch) return;
     const fallback = users.find((u) => u.name.toLowerCase() === DEFAULT_USER_NAME);
-    if (fallback) setConfig({ ...config, userId: fallback.id });
-  }, [config, users]);
+    if (!fallback) return;
+    setConfig({ ...config, userId: fallback.id });
+    // 投入先だけは下書きにせず保存する。未保存のままだとサーバーは誰の手元の話か決められず、
+    // 見出しには「pinax」と出ているのに所持の判定も巻数も付かない (投入しても弾かれる)。
+    // 作者・作品名など他の下書きは触らないよう、投入先だけを送って一覧だけ読み直す
+    const watchId = watch.id;
+    api
+      .saveFeedConfig(watchId, { userId: fallback.id })
+      .then(async () => {
+        const [pending, dismissed, alreadySent] = await Promise.all([
+          api.listFeedCandidates('pending', watchId),
+          api.listFeedCandidates('dismissed', watchId),
+          api.listFeedCandidates('sent', watchId),
+        ]);
+        setCandidates(pending);
+        setExcluded(dismissed);
+        setSent(alreadySent);
+      })
+      .catch(() => {
+        /* 保存できなくても下書きとしては選べている。設定を保存すれば済む */
+      });
+  }, [config, users, watch]);
 
   // 「どこが違うか」は並んでいるものの間で決まるので、区分ごとに切り分ける。
   // 下の読み込み中の分岐より前に置くこと (フックの数がレンダーで変わると React が落ちる)

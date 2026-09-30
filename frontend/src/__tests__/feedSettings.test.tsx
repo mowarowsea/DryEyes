@@ -81,11 +81,13 @@ describe('投入設定', () => {
     expect(select.value).toBe('2');
     // 保存先はユーザーの既定から動かさないので、欄そのものを出さない
     expect(screen.queryByText(/保存先/)).not.toBeInTheDocument();
+    // 投入先だけは下書きにせず保存する。未保存だと所持の判定も巻数も付かない
+    await waitFor(() => expect(api.saveFeedConfig).toHaveBeenCalledWith(watch.id, { userId: 2 }));
 
     fireEvent.click(screen.getByText('設定を保存'));
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith('設定を保存しました'));
     // 以前の保存先が残っていても、ここで投入先ユーザーの既定に戻す
-    expect(vi.mocked(api.saveFeedConfig).mock.calls[0][1]).toMatchObject({ userId: 2, destDir: null });
+    expect(vi.mocked(api.saveFeedConfig).mock.calls.at(-1)![1]).toMatchObject({ userId: 2, destDir: null });
     expect(screen.queryByText('設定を保存')).not.toBeInTheDocument();
   });
 
