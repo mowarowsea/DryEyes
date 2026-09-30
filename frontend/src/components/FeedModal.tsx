@@ -233,7 +233,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   const [excluded, setExcluded] = useState<FeedCandidateWithState[]>([]);
   const [sent, setSent] = useState<FeedCandidateWithState[]>([]);
   const [busy, setBusy] = useState<
-    'load' | 'save' | 'scan' | 'send' | 'exclude' | 'restore' | 'resend' | 'volume' | null
+    'load' | 'scan' | 'send' | 'exclude' | 'restore' | 'resend' | 'volume' | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -253,6 +253,12 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   // 自動の洗い出しは 1 回開くにつき 1 回まで。watch が差し替わって effect が
   // 走り直しても、同じ監視で二重に投げない
   const autoScannedFor = useRef<string | null>(null);
+  // 蔵書の検索結果から自動で選ぶときに今の設定を覗く口。effect の依存に config を
+  // 入れると、設定を変えるたびに検索が投げ直される
+  const configRef = useRef(config);
+  configRef.current = config;
+  // 手入力の欄に入ったときの値。離れたときに変わっていれば保存する
+  const focusedValue = useRef('');
 
   /**
    * initial はモーダルを開いた最初の 1 回だけ true。
@@ -295,6 +301,50 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
       setBusy(null);
     }
   }, []);
+
+  /** 候補の 3 区分だけを読み直す。設定は画面の値を正にしたいので触らない */
+  const reloadLists = useCallback(async (watchId: string) => {
+    const [pending, dismissed, alreadySent] = await Promise.all([
+      api.listFeedCandidates('pending', watchId),
+      api.listFeedCandidates('dismissed', watchId),
+      api.listFeedCandidates('sent', watchId),
+    ]);
+    setCandidates(pending);
+    setExcluded(dismissed);
+    setSent(alreadySent);
+  }, []);
+
+  // 走っている保存。保存は順に並べ、投入の前にはこれを待つ
+  // (手入力の欄から直接「投入」を押すと、欄を離れた保存と投入が同時に出る)
+  const saving = useRef<Promise<void>>(Promise.resolve());
+
+  /**
+   * 投入設定を変えたその場で保存する。
+   *
+   * 「設定を保存」ボタンだと、作品を選んだところで済んだ気になって押し忘れる。
+   * 未保存のままだと所持の判定も巻数も古い設定のままで、確認なしの自動投入も古い設定で走る。
+   * 送るのは変えた項目だけ (サーバーが重ねる)。保存先は常に投入先ユーザーの既定に戻す —
+   * 好きな場所に落としたければ PowerDowner 側で。
+   * 保存したら判定が付き直すので一覧を読み直す。
+   */
+  const saveSettings = useCallback(
+    (watchId: string, next: Partial<FeedConfig>): Promise<void> => {
+      const run = async () => {
+        try {
+          await api.saveFeedConfig(watchId, { ...next, destDir: null });
+          // 返ってきた設定で丸ごと置き換えると、保存中に書き進めた手入力の欄を巻き戻す
+          setConfig((prev) => (prev ? { ...prev, ...next, destDir: null } : prev));
+          onNotify?.('設定を保存しました');
+          await reloadLists(watchId);
+        } catch (err: any) {
+          setError(err.message || '設定の保存に失敗しました');
+        }
+      };
+      saving.current = saving.current.then(run);
+      return saving.current;
+    },
+    [onNotify, reloadLists]
+  );
 
   useEffect(() => {
     if (!isOpen) autoScannedFor.current = null;
@@ -343,9 +393,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   /**
    * 蔵書 (Pinax) を引く。打つたびに投げないよう少し待つ。
    *
-   * まだ何も決まっていない監視で候補が 1 件に絞れたときは、そのまま欄に入れる。
-   * 迷う余地が無い上に、ここは保存するまで何も起きない下書きなので取り消しも要らない。
-   * 人が書いたものは上書きしない。
+   * まだ何も決まっていない監視で候補が 1 件に絞れたときは、そのまま選んで保存する。
+   * 迷う余地が無く、違っていても選び直せば済む。人が決めたものは上書きしない。
    */
   useEffect(() => {
     if (!isOpen || !settingsOpen || nameSource !== 'pinax') return;
@@ -365,12 +414,9 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
           if (!alive) return;
           setShelfHits(hits);
           setShelfError(null);
-          if (hits.length === 1) {
-            setConfig((prev) =>
-              prev && !prev.author && !prev.title
-                ? { ...prev, author: hits[0].author, title: hits[0].title }
-                : prev
-            );
+          const current = configRef.current;
+          if (hits.length === 1 && watch && current && !current.author && !current.title) {
+            saveSettings(watch.id, { author: hits[0].author, title: hits[0].title });
           }
         })
         .catch((err: any) => {
@@ -387,37 +433,28 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
       alive = false;
       clearTimeout(timer);
     };
-  }, [isOpen, settingsOpen, nameSource, shelfQuery]);
+  }, [isOpen, settingsOpen, nameSource, shelfQuery, watch, saveSettings]);
 
   /**
    * 投入先が決まっていなければ、PowerDowner に pinax が居ればそれを既定にする。
-   * 保存するまでは下書きなので、選び直せば済む。
+   * 違っていれば選び直せば済む。
    */
   useEffect(() => {
     if (!config || config.userId !== null || !watch) return;
     const fallback = users.find((u) => u.name.toLowerCase() === DEFAULT_USER_NAME);
     if (!fallback) return;
     setConfig({ ...config, userId: fallback.id });
-    // 投入先だけは下書きにせず保存する。未保存のままだとサーバーは誰の手元の話か決められず、
+    // 画面に出すだけでなく保存もする。未保存のままだとサーバーは誰の手元の話か決められず、
     // 見出しには「pinax」と出ているのに所持の判定も巻数も付かない (投入しても弾かれる)。
-    // 作者・作品名など他の下書きは触らないよう、投入先だけを送って一覧だけ読み直す
+    // 自分で選んだわけではないので、トーストは出さない
     const watchId = watch.id;
     api
       .saveFeedConfig(watchId, { userId: fallback.id })
-      .then(async () => {
-        const [pending, dismissed, alreadySent] = await Promise.all([
-          api.listFeedCandidates('pending', watchId),
-          api.listFeedCandidates('dismissed', watchId),
-          api.listFeedCandidates('sent', watchId),
-        ]);
-        setCandidates(pending);
-        setExcluded(dismissed);
-        setSent(alreadySent);
-      })
+      .then(() => reloadLists(watchId))
       .catch(() => {
-        /* 保存できなくても下書きとしては選べている。設定を保存すれば済む */
+        /* 保存できなくても画面では選べている。選び直せばそこで保存される */
       });
-  }, [config, users, watch]);
+  }, [config, users, watch, reloadLists]);
 
   // 「どこが違うか」は並んでいるものの間で決まるので、区分ごとに切り分ける。
   // 下の読み込み中の分岐より前に置くこと (フックの数がレンダーで変わると React が落ちる)
@@ -444,19 +481,33 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   const missingJobs = sent.filter(isMissingJob);
 
 
-  const handleSave = async () => {
-    setBusy('save');
+  const save = (next: Partial<FeedConfig>) => {
+    patch(next);
     setError(null);
-    try {
-      // 保存先は投入先ユーザーの既定に任せる。好きな場所に落としたければ PowerDowner 側で
-      setConfig(await api.saveFeedConfig(watch.id, { ...config, destDir: null }));
-      setSettingsOpen(false);
-      onNotify?.('設定を保存しました');
-    } catch (err: any) {
-      setError(err.message || '設定の保存に失敗しました');
-    } finally {
-      setBusy(null);
-    }
+    return saveSettings(watch.id, next);
+  };
+
+  /** 手入力の欄は打つたびではなく、離れたときに変わっていれば保存する */
+  const saveOnBlur = (next: Partial<FeedConfig>, value: string) => {
+    if (value !== focusedValue.current) save(next);
+  };
+
+  /**
+   * 投入の前に、足りない設定が無いかを見る。足りなければ設定を開いて理由を出す。
+   * サーバーも同じところで止めるが、送ってから弾かれるより押した時点で分かる方が早い。
+   * 作品名は行から読めている (itemPattern) こともあるので、送る候補ごとに見る。
+   */
+  const checkReady = (targets: FeedCandidateWithState[]): boolean => {
+    const problem =
+      config.userId === null
+        ? '投入先 (PowerDowner のユーザー) を選んでください'
+        : targets.some((c) => !(config.title ?? c.meta.title))
+          ? '作品名が決まっていません。蔵書から選ぶか手入力してください'
+          : null;
+    if (!problem) return true;
+    setError(problem);
+    setSettingsOpen(true);
+    return false;
   };
 
   const handleScan = async (all: boolean) => {
@@ -477,11 +528,13 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   };
 
   const handleSend = async () => {
+    if (!checkReady(candidates)) return;
     setBusy('send');
     setError(null);
     setNotice(null);
     setSamples(undefined);
     try {
+      await saving.current;
       // 対象に残っているものを全部送る。落としたくないものは × で対象外にしておく
       const summary = await api.sendFeedCandidates(candidates.map((c) => c.id));
       const parts = [`${summary.sent} 件を PowerDowner に投入しました`];
@@ -553,11 +606,13 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
    * 消してしまったジョブだけが入り直る。押し間違えても二重に落ちることはない。
    */
   const handleResend = async (ids: string[]) => {
+    if (!checkReady(sent.filter((c) => ids.includes(c.id)))) return;
     setBusy('resend');
     setError(null);
     setNotice(null);
     setSamples(undefined);
     try {
+      await saving.current;
       const summary = await api.sendFeedCandidates(ids, true);
       const parts = [`${summary.sent} 件を投入し直しました`];
       // 「送ったのに何も起きない」ように見えるのは大抵ここなので、理由をそのまま出す
@@ -603,7 +658,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                 {users.length > 0 ? (
                   <select
                     value={config.userId ?? ''}
-                    onChange={(e) => patch({ userId: e.target.value === '' ? null : Number(e.target.value) })}
+                    onChange={(e) => save({ userId: e.target.value === '' ? null : Number(e.target.value) })}
                     className={selectClass}
                   >
                     <option value="">選択してください</option>
@@ -623,6 +678,10 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                       type="number"
                       value={config.userId ?? ''}
                       onChange={(e) => patch({ userId: e.target.value === '' ? null : Number(e.target.value) })}
+                      onFocus={(e) => (focusedValue.current = e.target.value)}
+                      onBlur={(e) =>
+                        saveOnBlur({ userId: e.target.value === '' ? null : Number(e.target.value) }, e.target.value)
+                      }
                       placeholder="ユーザー ID"
                       className={inputClass}
                     />
@@ -703,7 +762,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                             <li key={hit.id}>
                               <button
                                 type="button"
-                                onClick={() => patch({ author: hit.author, title: hit.title })}
+                                onClick={() => !chosen && save({ author: hit.author, title: hit.title })}
                                 className={`w-full text-left px-2.5 py-1.5 transition ${
                                   chosen
                                     ? 'bg-indigo-50 dark:bg-indigo-900/30'
@@ -750,6 +809,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                       type="text"
                       value={config.author ?? ''}
                       onChange={(e) => patch({ author: e.target.value || null })}
+                      onFocus={(e) => (focusedValue.current = e.target.value)}
+                      onBlur={(e) => saveOnBlur({ author: e.target.value || null }, e.target.value)}
                       placeholder="作者"
                       aria-label="作者"
                       className={inputClass}
@@ -758,6 +819,8 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                       type="text"
                       value={config.title ?? ''}
                       onChange={(e) => patch({ title: e.target.value || null })}
+                      onFocus={(e) => (focusedValue.current = e.target.value)}
+                      onBlur={(e) => saveOnBlur({ title: e.target.value || null }, e.target.value)}
                       placeholder={watch.title}
                       aria-label="作品タイトル"
                       className={inputClass}
@@ -772,17 +835,11 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                 <input
                   type="checkbox"
                   checked={config.autoSend}
-                  onChange={(e) => patch({ autoSend: e.target.checked })}
+                  onChange={(e) => save({ autoSend: e.target.checked })}
                   className="w-3.5 h-3.5 rounded accent-indigo-600"
                 />
                 次の更新分からは確認なしで投入する
               </label>
-
-              <div className="flex justify-end">
-                <button type="button" onClick={handleSave} disabled={working} className={subButton}>
-                  {busy === 'save' ? '保存中...' : '設定を保存'}
-                </button>
-              </div>
             </div>
           )}
         </section>

@@ -82,14 +82,24 @@ export async function sendCandidates(
       continue;
     }
 
-    for (const batch of chunk(candidates, config.powerdowner.batchSize)) {
+    // 作者と作品名は今の設定を重ねて送る。所持の判定と同じメタでないと、
+    // 向こうの重複判定が候補ごとに違う作品を見ることになる
+    const withMeta = candidates.map(withFeedMeta);
+    // 作品名が決まらないまま送ると、向こうでは作品の分からないジョブになり棚にも振り分けられない。
+    // 設定し忘れの取りこぼしなので、送らずに pending のまま残す
+    const untitled = withMeta.filter((c) => !c.meta.title);
+    if (untitled.length > 0) {
+      summary.errors.push({ watchId, message: '作品名が未設定です。投入設定で作者・作品名を決めてください' });
+      for (const c of untitled) summary.ignored.push({ id: c.id, reason: '作品名が未設定' });
+    }
+    const ready = withMeta.filter((c) => !!c.meta.title);
+
+    for (const batch of chunk(ready, config.powerdowner.batchSize)) {
       try {
         const response = await send({
           userId: feedConfig.userId,
           destDir: feedConfig.destDir,
-          // 作者と作品名は今の設定を重ねて送る。所持の判定と同じメタでないと、
-          // 向こうの重複判定が候補ごとに違う作品を見ることになる
-          candidates: batch.map(withFeedMeta),
+          candidates: batch,
         });
         const notes = notesBySourceKey(response);
 

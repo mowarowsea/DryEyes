@@ -64,6 +64,24 @@ describe('sendCandidates', () => {
     expect(getCandidate(candidate.id)?.resultNote).toMatch(/投入しました/);
   });
 
+  // 作品名を決め忘れたまま送ると、向こうでは作品の分からないジョブになる
+  it('should hold back candidates whose title is decided neither by the watch nor by the row', async () => {
+    assignOwner('sw30', OWNER);
+    setFeedConfig('sw30', { userId: 7 });
+    const [untitled, titled] = addCandidates('sw30', [
+      { text: 'Isekai_v01.rar', urls: ['https://a.example/1'], meta: { title: null, author: null, volume: null, rawText: 'Isekai_v01.rar' } },
+      itemOf('[著者] 作品名 第02巻'),
+    ]);
+
+    const send = vi.fn(async (input: any) => okResponse(input.candidates));
+    const summary = await sendCandidates([untitled.id, titled.id], OWNER, { send });
+
+    expect(send.mock.calls[0][0].candidates.map((c: any) => c.id)).toEqual([titled.id]);
+    expect(summary.errors[0].message).toMatch(/作品名が未設定/);
+    expect(getCandidate(untitled.id)?.status).toBe('pending');
+    expect(getCandidate(titled.id)?.status).toBe('sent');
+  });
+
   // 候補を積んだあとに作品名を設定した監視。積んだ時点の写しで送ると、向こうが
   // 作品名から導く seriesKey が候補ごとに揺れ、棚にある巻を落とし直してしまう
   it('should send the meta the watch is configured with now, not the one stored with the candidate', async () => {

@@ -73,7 +73,7 @@ afterEach(() => {
 });
 
 describe('投入設定', () => {
-  it('投入先が未設定なら pinax を既定にし、保存すると畳んでトーストで知らせる', async () => {
+  it('投入先が未設定なら pinax を既定にして保存する (トーストは出さない)', async () => {
     const onNotify = vi.fn();
     render(<FeedModal watch={watch} isOpen onClose={vi.fn()} onNotify={onNotify} />);
 
@@ -81,14 +81,67 @@ describe('投入設定', () => {
     expect(select.value).toBe('2');
     // 保存先はユーザーの既定から動かさないので、欄そのものを出さない
     expect(screen.queryByText(/保存先/)).not.toBeInTheDocument();
-    // 投入先だけは下書きにせず保存する。未保存だと所持の判定も巻数も付かない
+    // 未保存だと所持の判定も巻数も付かないので、選んだ時点で保存する
     await waitFor(() => expect(api.saveFeedConfig).toHaveBeenCalledWith(watch.id, { userId: 2 }));
+    expect(onNotify).not.toHaveBeenCalled();
+    // 保存ボタンは無い。変えたその場で保存される
+    expect(screen.queryByText('設定を保存')).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByText('設定を保存'));
+  it('投入先を選び直したらその場で保存してトーストで知らせる', async () => {
+    const onNotify = vi.fn();
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} onNotify={onNotify} />);
+
+    const select = await screen.findByDisplayValue(/^pinax/);
+    fireEvent.change(select, { target: { value: '1' } });
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith('設定を保存しました'));
     // 以前の保存先が残っていても、ここで投入先ユーザーの既定に戻す
-    expect(vi.mocked(api.saveFeedConfig).mock.calls.at(-1)![1]).toMatchObject({ userId: 2, destDir: null });
-    expect(screen.queryByText('設定を保存')).not.toBeInTheDocument();
+    expect(vi.mocked(api.saveFeedConfig).mock.lastCall![1]).toEqual({ userId: 1, destDir: null });
+  });
+
+  it('蔵書から作品を選んだらその場で保存する', async () => {
+    config = { ...baseConfig, userId: 1, author: null, title: null };
+    vi.mocked(api.searchPinaxSeries).mockResolvedValue([
+      { id: 1, title: 'ある漫画', author: '著者', files: 3, shelf: null },
+      { id: 2, title: 'ある漫画 外伝', author: '著者', files: 1, shelf: null },
+    ] as any);
+    const onNotify = vi.fn();
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} onNotify={onNotify} />);
+
+    fireEvent.click(await screen.findByText('投入設定'));
+    fireEvent.click(await screen.findByText('ある漫画 外伝'));
+    await waitFor(() => expect(onNotify).toHaveBeenCalledWith('設定を保存しました'));
+    expect(api.saveFeedConfig).toHaveBeenCalledWith(watch.id, { author: '著者', title: 'ある漫画 外伝', destDir: null });
+  });
+
+  it('手入力は欄を離れたときに、変わっていれば保存する', async () => {
+    config = { ...baseConfig, userId: 1 };
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText('投入設定'));
+    fireEvent.click(screen.getByRole('tab', { name: '手入力' }));
+    const title = screen.getByLabelText('作品タイトル');
+    fireEvent.focus(title);
+    fireEvent.blur(title);
+    expect(api.saveFeedConfig).not.toHaveBeenCalled();
+
+    fireEvent.focus(title);
+    fireEvent.change(title, { target: { value: '別の漫画' } });
+    fireEvent.blur(title);
+    await waitFor(() =>
+      expect(api.saveFeedConfig).toHaveBeenCalledWith(watch.id, { title: '別の漫画', destDir: null })
+    );
+  });
+
+  it('作品名が決まっていなければ投入せず、設定を開いて理由を出す', async () => {
+    config = { ...baseConfig, userId: 1, author: null, title: null };
+    candidates = [{ ...pending, meta: { ...pending.meta, title: null } }];
+    render(<FeedModal watch={watch} isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByText('1 件を投入'));
+    expect(await screen.findByText(/作品名が決まっていません/)).toBeInTheDocument();
+    expect(api.sendFeedCandidates).not.toHaveBeenCalled();
+    expect(screen.getByText('次の更新分からは確認なしで投入する')).toBeInTheDocument();
   });
 
   it('作者・作品名は蔵書と手入力のどちらか一方だけを見せる', async () => {
@@ -156,10 +209,8 @@ describe('開いたときの洗い出し', () => {
     render(<FeedModal watch={watch} isOpen onClose={vi.fn()} onNotify={onNotify} />);
 
     expect(await screen.findByText(/洗い出しています/)).toBeInTheDocument();
-    const save = screen.getByText('設定を保存');
-    expect(save).not.toBeDisabled();
     expect(screen.getByText('全件を洗い出す')).toBeDisabled();
-    fireEvent.click(save);
+    fireEvent.click(screen.getByText('次の更新分からは確認なしで投入する'));
     await waitFor(() => expect(onNotify).toHaveBeenCalledWith('設定を保存しました'));
     finish();
     await waitFor(() => expect(screen.queryByText(/洗い出しています/)).not.toBeInTheDocument());
