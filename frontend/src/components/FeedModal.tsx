@@ -134,6 +134,88 @@ const CandidateLabel: React.FC<{ parts: LabelParts; bodyClass: string }> = ({ pa
   </p>
 );
 
+/** 入力欄に入れておく今の巻数。「1-4」の形にしておけば、そのまま直して Enter で済む */
+const volumeDraft = (candidate: FeedCandidateWithState): string => {
+  const pd = candidate.powerdowner;
+  if (pd && pd.volumeFrom !== null) {
+    return pd.volumeFrom === pd.volumeTo ? String(pd.volumeFrom) : `${pd.volumeFrom}-${pd.volumeTo}`;
+  }
+  return candidate.meta.volume ?? '';
+};
+
+/**
+ * 巻数の表示と、その場での書き換え。
+ *
+ * 画面に足すものを増やさないよう、いま出ている「第1-4巻」「巻数不明」の文字自体を押せるようにする。
+ * 押すと同じ場所が小さな入力欄になり、Enter か欄の外で決まる (Esc で取り消し)。
+ * 空で決めると、元の文字列からの読み取りに戻る。
+ */
+const VolumeEditor: React.FC<{
+  candidate: FeedCandidateWithState;
+  disabled: boolean;
+  onSave: (volume: string | null) => Promise<void>;
+}> = ({ candidate, disabled, onSave }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  // Esc で閉じた欄が外れるときの blur で保存しないための印
+  const cancelled = useRef(false);
+  const label = volumeLabel(candidate);
+  // 巻数を読めていないと「もう持っているか」の判定に参加できないので目立たせる
+  const unreadable = !!candidate.powerdowner && candidate.powerdowner.volumeFrom === null;
+
+  if (editing) {
+    const commit = async () => {
+      setEditing(false);
+      if (cancelled.current) return;
+      const next = draft.trim();
+      if (next === volumeDraft(candidate)) return;
+      await onSave(next || null);
+    };
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            e.stopPropagation(); // モーダルごと閉じない
+            cancelled.current = true;
+            setEditing(false);
+          }
+        }}
+        placeholder="1-4"
+        aria-label="巻数"
+        className="w-14 px-1 py-0 text-[10px] leading-tight rounded border border-indigo-300 dark:border-indigo-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 outline-none"
+      />
+    );
+  }
+
+  if (!label && !unreadable) return null;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        setDraft(volumeDraft(candidate));
+        cancelled.current = false;
+        setEditing(true);
+      }}
+      title={
+        unreadable
+          ? '巻数を読み取れないと、既に持っているかの判定に参加できません。押して巻数を指定'
+          : '押して巻数を直す'
+      }
+      className={`rounded hover:underline decoration-dotted underline-offset-2 disabled:no-underline ${
+        unreadable ? 'text-rose-500 dark:text-rose-400' : ''
+      }`}
+    >
+      {label ?? '巻数不明'}
+    </button>
+  );
+};
+
 export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, onNotify }) => {
   const [config, setConfig] = useState<FeedConfig | null>(null);
   const [users, setUsers] = useState<PowerdownerUser[]>([]);
@@ -148,7 +230,7 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
   const [excluded, setExcluded] = useState<FeedCandidateWithState[]>([]);
   const [sent, setSent] = useState<FeedCandidateWithState[]>([]);
   const [busy, setBusy] = useState<
-    'load' | 'save' | 'scan' | 'send' | 'exclude' | 'restore' | 'resend' | null
+    'load' | 'save' | 'scan' | 'send' | 'exclude' | 'restore' | 'resend' | 'volume' | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -422,6 +504,20 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
       await load(watch.id);
     } catch (err: any) {
       setError(err.message || '戻せませんでした');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** 巻数を直したら読み直す。所持の判定がその巻数で付け直される */
+  const handleVolume = async (id: string, volume: string | null) => {
+    setBusy('volume');
+    setError(null);
+    try {
+      await api.setFeedCandidateVolume(id, volume);
+      await load(watch.id);
+    } catch (err: any) {
+      setError(err.message || '巻数を保存できませんでした');
     } finally {
       setBusy(null);
     }
@@ -754,9 +850,6 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
               {candidates.map((candidate, index) => {
                 const pd = candidate.powerdowner;
                 const badge = pd && pd.state !== 'new' ? STATE_BADGE[pd.state] : null;
-                const volume = volumeLabel(candidate);
-                // 巻数を読めていないと「もう持っているか」の判定に参加できないので目立たせる
-                const unreadableVolume = !!pd && pd.volumeFrom === null;
                 return (
                   <li
                     key={candidate.id}
@@ -772,15 +865,11 @@ export const FeedModal: React.FC<FeedModalProps> = ({ watch, isOpen, onClose, on
                           <Link2 className="w-2.5 h-2.5" />
                           {candidate.urls.length}
                         </span>
-                        {volume && <span>{volume}</span>}
-                        {unreadableVolume && (
-                          <span
-                            className="text-rose-500 dark:text-rose-400"
-                            title="巻数を読み取れないと、既に持っているかの判定に参加できません"
-                          >
-                            巻数不明
-                          </span>
-                        )}
+                        <VolumeEditor
+                          candidate={candidate}
+                          disabled={working}
+                          onSave={(volume) => handleVolume(candidate.id, volume)}
+                        />
                       </p>
                     </div>
                     {badge && (

@@ -10,6 +10,7 @@ import {
   getFeedConfig,
   listCandidates,
   restoreCandidate,
+  setCandidateVolume,
   setFeedConfig,
   withFeedMeta,
 } from '../services/feedStore.js';
@@ -154,6 +155,20 @@ feedRouter.post('/candidates/:id/restore', async (req, res) => {
   if (!ensureOwned(candidate.watchId, req.user!.id, res)) return;
 
   res.json(restoreCandidate(req.params.id));
+});
+
+/** 巻数を人が決める。空で送ると元の文字列からの読み取りに戻す */
+feedRouter.put('/candidates/:id/volume', async (req, res) => {
+  const candidate = getCandidate(req.params.id);
+  if (!candidate) {
+    res.status(404).json({ error: 'Candidate not found' });
+    return;
+  }
+  if (!ensureOwned(candidate.watchId, req.user!.id, res)) return;
+
+  const raw = req.body?.volume;
+  const volume = raw === null || raw === undefined ? null : String(raw).trim() || null;
+  res.json(setCandidateVolume(req.params.id, volume));
 });
 
 feedRouter.get('/powerdowner/users', async (_req, res) => {

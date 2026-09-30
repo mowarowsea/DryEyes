@@ -11,6 +11,7 @@ process.env.DATA_DIR = tmpDir;
 const {
   getFeedConfig, setFeedConfig, getPointer, setPointer,
   addCandidates, listCandidates, markSent, dismissCandidate, restoreCandidate,
+  setCandidateVolume,
   clearFeedState, pruneFeedState,
 } = await import('../feedStore.js');
 
@@ -113,6 +114,25 @@ describe('markSent', () => {
 
   it('should return null for an unknown id', () => {
     expect(markSent('nope', null)).toBeNull();
+  });
+});
+
+describe('setCandidateVolume', () => {
+  it('should overwrite the volume PowerDowner reads first, keeping the rest', () => {
+    const [added] = addCandidates('w8', [item('RionkuuruSenki v05 DL.rar')]);
+    const updated = setCandidateVolume(added.id, '5');
+    expect(updated?.meta.volume).toBe('5');
+    expect(updated?.meta.rawText).toBe('RionkuuruSenki v05 DL.rar');
+    expect(updated?.status).toBe('pending');
+  });
+
+  it('should clear back to reading from the raw text', () => {
+    const [added] = addCandidates('w8', [item('RionkuuruSenki v06se.rar')]);
+    expect(setCandidateVolume(added.id, null)?.meta.volume).toBeNull();
+  });
+
+  it('should return null for an unknown id', () => {
+    expect(setCandidateVolume('nope', '1')).toBeNull();
   });
 });
 

@@ -350,6 +350,16 @@ export const api = {
     return res.json();
   },
 
+  /** 候補の巻数を人が決める。null で元の文字列からの読み取りに戻す */
+  async setFeedCandidateVolume(id: string, volume: string | null): Promise<FeedCandidate> {
+    const res = await request(`/feed/candidates/${id}/volume`, {
+      method: 'PUT',
+      body: JSON.stringify({ volume }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, '巻数を保存できませんでした'));
+    return res.json();
+  },
+
   // 投入先の選択肢。PowerDowner が落ちていると取れないので、画面側で握り潰す
   async listPowerdownerUsers(): Promise<PowerdownerUser[]> {
     const res = await request('/feed/powerdowner/users');

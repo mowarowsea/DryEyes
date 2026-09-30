@@ -172,6 +172,23 @@ export function restoreCandidate(id: string): FeedCandidate | null {
   return next;
 }
 
+/**
+ * 巻数を人が決める。行から読み取れなかった・読み違えたときの直し口。
+ *
+ * meta.volume は PowerDowner が「巻数だと分かっている値」として最優先で読む
+ * (元の文字列より先に見る) ので、ここに入れれば所持の判定も投入後の名付けもこれに従う。
+ * 空にすると元の文字列からの読み取りに戻る。
+ */
+export function setCandidateVolume(id: string, volume: string | null): FeedCandidate | null {
+  const current = getCandidate(id);
+  if (!current) return null;
+  const next: FeedCandidate = { ...current, meta: { ...current.meta, volume } };
+  store.update((data) => {
+    data.candidates[id] = next;
+  });
+  return next;
+}
+
 /** 監視を削除したときの後始末 */
 export function clearFeedState(watchId: string): void {
   store.update((data) => {
