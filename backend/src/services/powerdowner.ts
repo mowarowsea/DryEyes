@@ -13,6 +13,11 @@ export interface SendItemsResponse {
   merged: { jobId: string; sourceKey: string | null; title: string | null; urls: string[] }[];
   skipped: { sourceKey: string | null; title: string | null; reason: string }[];
   invalid: { sourceKey: string | null; title: string | null; reason: string }[];
+  /**
+   * 「使用しない」にしたアップローダの URL しか無かったもの。ジョブにはならない。
+   * 古い PowerDowner は返さないので省略可にしておく
+   */
+  rejected?: { sourceKey: string | null; title: string | null; reason: string; hosters?: string[] }[];
   truncated: number;
 }
 
@@ -151,6 +156,11 @@ export function notesBySourceKey(res: SendItemsResponse): Map<string, string> {
   }
   for (const i of res.invalid ?? []) {
     if (i.sourceKey) notes.set(i.sourceKey, i.reason);
+  }
+  // 拾わないと「応答に現れなかった = 上限で切られた」と取り違え、pending のまま
+  // 自動投入のたびに送り直す。向こうの答えとして残し、アップローダを戻した時は送り直しで入れる
+  for (const r of res.rejected ?? []) {
+    if (r.sourceKey) notes.set(r.sourceKey, r.reason);
   }
   return notes;
 }

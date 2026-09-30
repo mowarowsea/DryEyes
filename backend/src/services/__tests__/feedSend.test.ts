@@ -39,12 +39,17 @@ describe('notesBySourceKey', () => {
       merged: [{ jobId: 'j2', sourceKey: 'k2', title: 't', urls: [] }],
       skipped: [{ sourceKey: 'k3', title: 't', reason: '所持済み (第1-6巻)' }],
       invalid: [{ sourceKey: 'k4', title: 't', reason: '有効な URL がありません' }],
+      rejected: [
+        { sourceKey: 'k5', title: 't', reason: '使用しない設定のアップローダだけでした (katfile)', hosters: ['katfile'] },
+      ],
       truncated: 0,
     });
     expect(notes.get('k1')).toMatch(/投入しました/);
     expect(notes.get('k2')).toMatch(/合流/);
     expect(notes.get('k3')).toBe('所持済み (第1-6巻)');
     expect(notes.get('k4')).toMatch(/有効な URL/);
+    // 使用しないアップローダで弾かれたものも向こうの答え。上限で切られた扱いにしない
+    expect(notes.get('k5')).toMatch(/使用しない設定/);
   });
 });
 
@@ -225,6 +230,22 @@ describe('sendCandidates', () => {
     expect(summary.sent).toBe(0);
     expect(getCandidate(candidate.id)?.status).toBe('pending');
     expect(summary.ignored[0].reason).toMatch(/次回/);
+  });
+
+  it('should record a rejection by a disabled uploader as the result, not leave it for the next round', async () => {
+    assignOwner('sw10', OWNER);
+    setFeedConfig('sw10', { userId: 1 });
+    const [candidate] = addCandidates('sw10', [itemOf('[著者] 作品名 第09巻')]);
+
+    const send = vi.fn(async () => ({
+      created: [], merged: [], skipped: [], invalid: [], truncated: 0,
+      rejected: [{ sourceKey: candidate.sourceKey, title: 't', reason: '使用しない設定のアップローダだけでした (katfile)' }],
+    }));
+    const summary = await sendCandidates([candidate.id], OWNER, { send });
+
+    expect(summary.sent).toBe(1);
+    expect(getCandidate(candidate.id)?.status).toBe('sent');
+    expect(getCandidate(candidate.id)?.resultNote).toMatch(/使用しない設定/);
   });
 
   it('should keep going when one watch fails', async () => {
