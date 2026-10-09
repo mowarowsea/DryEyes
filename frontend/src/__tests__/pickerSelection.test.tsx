@@ -87,6 +87,45 @@ describe('要素ピッカーの選択操作', () => {
     expect(screen.queryByRole('button', { name: /選択範囲を拡大/ })).not.toBeInTheDocument();
   });
 
+  it('要素を追加すると、類似で括れない要素どうしを XPath のユニオンで 1 本にして渡す', async () => {
+    const onSelectXPath = vi.fn();
+    renderPicker({ onSelectXPath, confirmLabel: '監視する' });
+    const postMessage = vi.spyOn(previewWindow(), 'postMessage');
+
+    selectElement({ xpath: '//*[@id="price"]', text: '1,980円', similarCount: 1 });
+    fireEvent.click(await screen.findByRole('button', { name: /追加/ }));
+    // 積んだ要素はチップで見え、次のタップを待つ
+    expect(screen.getByText('1,980円')).toBeInTheDocument();
+    expect(screen.getByText(/一緒に見張る要素をタップ/)).toBeInTheDocument();
+
+    selectElement({});
+    fireEvent.click(await screen.findByRole('button', { name: /類似要素も選択/ }));
+    expect(postMessage).toHaveBeenLastCalledWith(
+      { type: 'DRYEYES_HIGHLIGHT_XPATH', xpath: '//*[@id="price"] | //a[contains(@class, "episode")]' },
+      '*'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /監視する（13件）/ }));
+    expect(onSelectXPath).toHaveBeenCalledWith(
+      '//*[@id="price"] | //a[contains(@class, "episode")]',
+      ['1,980円', '第112話'],
+      false
+    );
+  });
+
+  it('積んだ要素は × で外せる', async () => {
+    const onSelectXPath = vi.fn();
+    renderPicker({ onSelectXPath });
+
+    selectElement({ xpath: '//*[@id="price"]', text: '1,980円', similarCount: 1 });
+    fireEvent.click(await screen.findByRole('button', { name: /追加/ }));
+    selectElement({ xpath: '//h1', text: 'タイトル', similarCount: 1 });
+    fireEvent.click(screen.getByRole('button', { name: '1,980円 を外す' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /^OK/ }));
+    expect(onSelectXPath).toHaveBeenCalledWith('//h1', ['タイトル'], false);
+  });
+
   it('要素を選ぶまではどちらのボタンも出さない', () => {
     renderPicker();
     expect(screen.queryByRole('button', { name: /選択範囲を拡大/ })).not.toBeInTheDocument();

@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Sparkles,
   Expand,
+  Plus,
 } from 'lucide-react';
 import { useEscapeToClose } from './Modal';
 import { useIsDarkTheme } from '../hooks/useIsDarkTheme';
@@ -51,6 +52,16 @@ interface SelectedElementData {
   /** まだ外側の親要素へ広げられるか */
   canExpand?: boolean;
 }
+
+/** 「＋要素を追加」で確保した選択。確定時に XPath のユニオン（|）で 1 本にまとめる。 */
+interface PickedPart {
+  xpath: string;
+  texts: string[];
+  label: string;
+  count: number;
+}
+
+const joinXPaths = (parts: PickedPart[]) => parts.map((p) => p.xpath).join(' | ');
 
 interface VisualElementPickerModalProps {
   isOpen: boolean;
@@ -105,6 +116,12 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
   // 読み込み直す前のページからの返事を、新しいページの結果として受け取らないための通し番号
   const probeRequest = useRef(0);
   const [targetMode, setTargetMode] = useState<'single' | 'similar'>('single');
+  // 類似要素として括れない要素どうしを一緒に見張るため、選んだものを積んでおく。
+  // Ctrl+クリックのような修飾キーはスマホで使えないので、ボタンで積む。
+  const [pickedParts, setPickedParts] = useState<PickedPart[]>([]);
+  // メッセージ受信のハンドラは開いたときに一度だけ作るので、最新の積み荷は ref で読む
+  const pickedPartsRef = useRef(pickedParts);
+  pickedPartsRef.current = pickedParts;
   const [iframeKey, setIframeKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showOptions, setShowOptions] = useState(false);
@@ -129,6 +146,25 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   // 登録／設定変更モーダルの上に重なるが、Esc では手前のこのピッカーだけが閉じる
   useEscapeToClose(isOpen, onClose);
+
+  // いま選んでいる要素を、確定時と同じ形（XPath と抜き出す文字列）にする
+  const toPart = (element: SelectedElementData, mode: 'single' | 'similar'): PickedPart => {
+    const isSimilar = mode === 'similar' && !!element.similarXPath;
+    const texts = isSimilar && element.similarTexts && element.similarTexts.length > 0
+      ? element.similarTexts
+      : (element.text ? [element.text] : []);
+    return {
+      xpath: isSimilar ? element.similarXPath : element.xpath,
+      texts,
+      label: (element.text || '').trim() || `<${(element.tagName || '').toLowerCase()}>`,
+      count: isSimilar ? element.similarCount : 1,
+    };
+  };
+
+  // 積んだ要素といま選んでいる要素を、まとめてプレビューで光らせる
+  const highlightWith = (current: PickedPart | null, picked: PickedPart[] = pickedPartsRef.current) => {
+    sendHighlightToIframe(joinXPaths(current ? [...picked, current] : picked));
+  };
 
   const sendHighlightToIframe = (xpath: string) => {
     const iframe = document.getElementById('dryeyes-preview-iframe') as HTMLIFrameElement | null;
@@ -160,6 +196,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     if (!isOpen) return;
     setRenderMode(initialRenderMode === 'browser' ? 'browser' : 'static');
     setBrowserRenderFailed(false);
+    setPickedParts([]);
   }, [isOpen, targetUrl, initialRenderMode]);
 
   // テーマを切り替えるとプレビューの URL が変わり iframe を読み込み直すので、その間は待たせる
@@ -183,7 +220,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
         const payload: SelectedElementData = event.data.payload;
         setSelectedElement(payload);
         setTargetMode('single');
-        sendHighlightToIframe(payload.xpath);
+        highlightWith(toPart(payload, 'single'));
       } else if (event.data.type === 'DRYEYES_PROBE_RESULT') {
         // 通し番号が付いていれば、いま出している問い合わせへの返事だけを受け取る
         const { requestId } = event.data;
@@ -239,34 +276,57 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
   const handleToggleSimilar = (toSimilar: boolean) => {
     if (!selectedElement) return;
-    setTargetMode(toSimilar ? 'similar' : 'single');
-    const path = toSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
-    sendHighlightToIframe(path);
+    const mode = toSimilar ? 'similar' : 'single';
+    setTargetMode(mode);
+    highlightWith(toPart(selectedElement, mode));
+  };
+
+  // いまの選択を積んで、次の要素をタップできる状態に戻す
+  const handleAddPart = () => {
+    if (!selectedElement) return;
+    const part = toPart(selectedElement, targetMode);
+    const next = pickedParts.some((p) => p.xpath === part.xpath) ? pickedParts : [...pickedParts, part];
+    setPickedParts(next);
+    setSelectedElement(null);
+    setTargetMode('single');
+    highlightWith(null, next);
+  };
+
+  const handleRemovePart = (index: number) => {
+    const next = pickedParts.filter((_, i) => i !== index);
+    setPickedParts(next);
+    highlightWith(selectedElement ? toPart(selectedElement, targetMode) : null, next);
   };
 
   const handleConfirm = (isExclude: boolean = false) => {
-    if (!selectedElement) {
+    const parts = selectedElement ? [...pickedParts, toPart(selectedElement, targetMode)] : pickedParts;
+    if (parts.length === 0) {
       // 要素を選ばずに確定できるのは登録時だけ。その場合はページ全体が対象になる。
       if (!isExclude && allowEmptySelection) onSelectXPath('', [], false);
       return;
     }
 
-    const isSimilar = targetMode === 'similar';
-    const finalXPath = isSimilar && selectedElement.similarXPath ? selectedElement.similarXPath : selectedElement.xpath;
-    const texts = isSimilar && selectedElement.similarTexts && selectedElement.similarTexts.length > 0
-      ? selectedElement.similarTexts
-      : (selectedElement.text ? [selectedElement.text] : []);
+    // 複数あれば XPath のユニオンで 1 本にする。評価側は document.evaluate なので、そのまま複数ノードが返る。
+    const finalXPath = joinXPaths(parts.filter((p) => p.xpath));
     if (!finalXPath) return;
 
-    onSelectXPath(finalXPath, texts, isExclude);
+    onSelectXPath(finalXPath, parts.flatMap((p) => p.texts), isExclude);
 
     // 除外はいくつも足せるようにしたいので、選択だけ解除して画面は開いたままにする
-    if (isExclude) setSelectedElement(null);
+    if (isExclude) {
+      setSelectedElement(null);
+      setPickedParts([]);
+      sendHighlightToIframe('');
+    }
   };
 
   const hasSimilarElements = (selectedElement?.similarCount ?? 0) > 1;
   // canExpand を返さない古いプレビューでも拡大を試せるようにしておく
   const canExpandSelection = !!selectedElement && selectedElement.canExpand !== false;
+  const hasSelection = !!selectedElement || pickedParts.length > 0;
+  const totalCount =
+    pickedParts.reduce((sum, p) => sum + p.count, 0) +
+    (selectedElement ? toPart(selectedElement, targetMode).count : 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
@@ -377,12 +437,8 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                 }, PREVIEW_ANNOUNCE_GRACE_MS);
               }
               // テーマ切り替えなどで読み込み直したときに、選んでいた要素のハイライトを戻す
-              if (selectedElement) {
-                const path =
-                  targetMode === 'similar' && selectedElement.similarXPath
-                    ? selectedElement.similarXPath
-                    : selectedElement.xpath;
-                sendHighlightToIframe(path);
+              if (hasSelection) {
+                highlightWith(selectedElement ? toPart(selectedElement, targetMode) : null);
               } else {
                 // まだ何も選んでいなければ、引き継ぎ候補がこのページにもあるかを調べて見せる
                 probeTemplate();
@@ -453,7 +509,34 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
 
           {/* 同じサイトの他の監視が見ている場所。このページにも当たるなら、タップせずにそのまま登録できる。
               要素を自分で選び始めたら、その邪魔にならないよう引っ込める。 */}
-          {template && !selectedElement && (
+          {/* 「＋要素を追加」で積んだ要素。× で個別に外せる。 */}
+          {pickedParts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {pickedParts.map((part, index) => (
+                <span
+                  key={part.xpath}
+                  className="max-w-full pl-2.5 pr-1 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/40 text-xs text-indigo-800 dark:text-indigo-100 flex items-center gap-1"
+                >
+                  <span className="truncate max-w-[12rem]">{part.label}</span>
+                  {part.count > 1 && (
+                    <span className="flex-shrink-0 text-[11px] font-bold text-indigo-500 dark:text-indigo-300">
+                      {part.count}件
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePart(index)}
+                    aria-label={`${part.label} を外す`}
+                    className="flex-shrink-0 p-1 rounded-full text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-500/30 dark:hover:text-white transition"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {template && !hasSelection && (
             <div className="p-2.5 rounded-xl border bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30 flex flex-col gap-2">
               <p className="flex items-start gap-1.5 text-xs text-emerald-900 dark:text-emerald-100 leading-relaxed">
                 <Layers className="w-4 h-4 flex-shrink-0 mt-px text-emerald-600 dark:text-emerald-300" />
@@ -501,9 +584,11 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
           {!selectedElement && (
             <span className="py-1 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center text-center">
               <AlertCircle className="w-3.5 h-3.5 mr-1 flex-shrink-0" />
-              {allowEmptySelection
-                ? '見張りたい要素をタップ（選ばずに登録するとページ全体）'
-                : '見張りたい要素をタップ'}
+              {pickedParts.length > 0
+                ? '一緒に見張る要素をタップ'
+                : allowEmptySelection
+                  ? '見張りたい要素をタップ（選ばずに登録するとページ全体）'
+                  : '見張りたい要素をタップ'}
             </span>
           )}
 
@@ -533,14 +618,25 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
           <div className="flex items-center gap-2">
             <button
               onClick={() => handleConfirm(true)}
-              disabled={!selectedElement || submitting}
+              disabled={!hasSelection || submitting}
               className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 disabled:opacity-40 transition rounded-xl flex-shrink-0"
             >
               除外
             </button>
+            {/* 類似要素として括れない要素を一緒に見張るとき用。選んだものを積んで、次をタップさせる。 */}
+            <button
+              type="button"
+              onClick={handleAddPart}
+              disabled={!selectedElement || submitting}
+              title="いまの選択を残したまま、別の要素も選びます"
+              className="px-3 py-3 text-sm font-medium text-indigo-700 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 disabled:opacity-40 transition rounded-xl flex-shrink-0 flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="whitespace-nowrap"><span className="hidden sm:inline">要素を</span>追加</span>
+            </button>
             <button
               onClick={() => handleConfirm(false)}
-              disabled={(!selectedElement && !allowEmptySelection) || submitting}
+              disabled={(!hasSelection && !allowEmptySelection) || submitting}
               className="flex-1 px-4 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-40 transition rounded-xl shadow-sm flex items-center justify-center gap-1.5"
             >
               {submitting ? (
@@ -552,8 +648,8 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
                 <>
                   <Check className="w-4 h-4" />
                   <span>
-                    {targetMode === 'similar'
-                      ? `${confirmLabel}（${selectedElement?.similarCount}件）`
+                    {targetMode === 'similar' || pickedParts.length > 0
+                      ? `${confirmLabel}（${totalCount}件）`
                       : confirmLabel}
                   </span>
                 </>
