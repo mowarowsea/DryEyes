@@ -329,7 +329,7 @@ export const VisualElementPickerModal: React.FC<VisualElementPickerModalProps> =
     (selectedElement ? toPart(selectedElement, targetMode).count : 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
+    <div className="safe-area-inset fixed inset-0 z-50 flex items-stretch bg-slate-900/80 backdrop-blur-sm animate-fadeIn">
       <div className="bg-white dark:bg-slate-900 w-full flex flex-col shadow-2xl overflow-hidden">
 
         {/* ヘッダー（最小化） */}

@@ -76,7 +76,7 @@ export const Modal: React.FC<ModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
       <div
         className={`bg-white dark:bg-slate-900 rounded-2xl w-full ${SIZE_CLASS[size]} max-h-[90vh] flex flex-col shadow-2xl overflow-hidden`}
       >

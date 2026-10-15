@@ -11,10 +11,25 @@ body {
 /* スクロールバーやフォームの既定色もテーマに合わせる */
 html {
   color-scheme: light;
+  /* ナビバーの裏にも見えるので、body だけでなく html にも背景を塗っておく */
+  background-color: rgb(241 245 249);
 }
 
 html.dark {
   color-scheme: dark;
+  background-color: rgb(2 6 23);
+}
+
+/* ステータスバー・ナビバーの裏まで描画しているので、中身はその分だけ内側に寄せる */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 全画面に被せる要素も同じ余白を取る（body の padding は fixed 要素に効かないため） */
+.safe-area-inset {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* ダーク時のプレースホルダーが暗すぎて読めないため、明示的に指定する */
