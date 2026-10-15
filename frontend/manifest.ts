@@ -13,7 +13,11 @@ export function buildManifest(base: string): Record<string, unknown> {
     scope: base,
     display: 'standalone',
     orientation: 'portrait',
-    background_color: '#f1f5f9',
+    // 新しめの Chrome は、インストールしたアプリ下部のナビバーをマニフェストの色で塗る。
+    // マニフェストにはダーク用の色を書けないため、端末がダークモードでも薄い色の帯になり、
+    // その上に白いボタンが乗って見えなくなっていた（Pixel 8a、2026-10-15）。
+    // 日常利用の端末に合わせて暗い色に寄せる（起動時のスプラッシュも暗くなる）。
+    background_color: '#020617',
     theme_color: '#4f46e5',
     lang: 'ja',
     icons: [
